@@ -1,6 +1,6 @@
 {
 	"name": "__MSG_extensionName__",
-	"version": "0.9.9999",
+	"version": "0.9.99991",
 	"manifest_version": 2,
 	"author": "Salar Khalilzadeh",
 	"description": "__MSG_extensionDescription__",
@@ -47,6 +47,11 @@
 		"browser_style": false
 	},
 	"commands": {
+		"_execute_browser_action": {
+			"suggested_key": {
+				"default": "Alt+Shift+O"
+			}
+		},
 		"next-proxy-server": {
 			"suggested_key": { 
 				"default": "Ctrl+Shift+Period"
@@ -86,7 +91,7 @@
 	},
 	"browser_specific_settings": {
 		"gecko": {
-			"id": "smartproxy@salarcode.com",
+			"id": "{b4314f2c-20c4-4f0b-a71e-fd5f59dca84c}",
 			"strict_min_version": "91.1.0"
 		}
 	}

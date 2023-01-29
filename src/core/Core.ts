@@ -16,7 +16,7 @@
  */
 import { api, environment } from '../lib/environment';
 import { ProxyAuthentication } from './ProxyAuthentication';
-import { Debug } from '../lib/Debug';
+import { Debug, DiagDebug } from '../lib/Debug';
 import { SettingsOperation } from './SettingsOperation';
 import { ProxyEngine } from './ProxyEngine';
 import { PolyFill } from '../lib/PolyFill';
@@ -57,6 +57,7 @@ export class Core {
 		Debug.disable();
 
 		const settingReadComplete = () => {
+			DiagDebug?.trace("Core.settingReadComplete start");
 			// on settings read success
 			// Note: this might run twice, one for local, one for remotely synced data
 
@@ -75,6 +76,8 @@ export class Core {
 
 			// check for updates, only in unlisted version
 			UpdateManager.readUpdateInfo();
+
+			DiagDebug?.trace("Core.settingReadComplete end");
 		};
 
 		settingsLib.onInitializedLocally = settingReadComplete;
@@ -190,6 +193,16 @@ export class Core {
 
 					// send the data
 					sendResponse(dataForProxyable);
+
+					if (environment.chrome) {
+						// BUGFIX: on the first run, `sendResponse` doesn't send data
+						PolyFill.runtimeSendMessage(
+							{
+								command: CommandMessages.ProxyableGetInitialDataResponse,
+								tabId: tabId,
+								dataForProxyable: dataForProxyable
+							});
+					}
 					return;
 				}
 				break;
@@ -457,7 +470,8 @@ export class Core {
 					});
 				}
 				return;
-			} case CommandMessages.SettingsPageMakeRequestSpecial: {
+			}
+			case CommandMessages.SettingsPageMakeRequestSpecial: {
 				if (!message.url)
 					return;
 
@@ -520,6 +534,18 @@ export class Core {
 
 				Core.setBrowserActionStatus();
 				return;
+			}
+			case CommandMessages.DebugEnableDiagnostics: {
+				Debug.enableDiagnostics();
+				break;
+			}
+			case CommandMessages.DebugGetDiagnosticsLogs: {
+				let result = DiagDebug?.getDiagLogs();
+
+				// send the responses
+				if (result && sendResponse) {
+					sendResponse(result);
+				}
 			}
 			default:
 				{

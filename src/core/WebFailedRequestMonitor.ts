@@ -22,7 +22,7 @@ import { Utils } from "../lib/Utils";
 import { TabManager } from "./TabManager";
 import { CommandMessages, FailedRequestType, CompiledProxyRule } from "./definitions";
 import { Settings } from "./Settings";
-import { Debug } from "../lib/Debug";
+import { Debug, DiagDebug } from "../lib/Debug";
 
 export class WebFailedRequestMonitor {
 
@@ -43,6 +43,7 @@ export class WebFailedRequestMonitor {
 		Debug.log("FailedRequestNotification is Disabled");
 	}
 
+	/** Domain is being added to the rules list, so removing it from failed requests list */
 	public static removeDomainsFromTabFailedRequests(tabId: number, domainList: string[]) {
 		if (!(tabId > -1))
 			return null;
@@ -76,6 +77,7 @@ export class WebFailedRequestMonitor {
 		return failedRequests;
 	}
 
+	/** Monitor entry point */
 	private static requestMonitorCallback(eventType: RequestMonitorEvent, requestDetails: any) {
 		if (!Settings.current.options.detectRequestFailures)
 			return;
@@ -97,6 +99,8 @@ export class WebFailedRequestMonitor {
 
 		let requestHost = Utils.extractHostFromUrl(requestUrl);
 		let failedRequests = tabData.failedRequests || (tabData.failedRequests = new Map<string, FailedRequestType>());
+
+		DiagDebug?.trace("WebFailedRequestMonitorCall", tabId, RequestMonitorEvent[eventType], requestHost);
 
 		switch (eventType) {
 			case RequestMonitorEvent.RequestComplete:
@@ -294,6 +298,7 @@ export class WebFailedRequestMonitor {
 		}
 	}
 
+	/** Marks the a failed request to be ignored if it is requested by user using the ignore rules. */
 	private static markIgnoreDomain(failedInfo: FailedRequestType, requestHost: string) {
 
 		if (WebFailedRequestMonitor.checkIfDomainIgnored(requestHost)) {
@@ -316,6 +321,7 @@ export class WebFailedRequestMonitor {
 		return false;
 	}
 
+	/** Checks if a domain is in ignore rules list */
 	private static checkIfDomainIgnored(requestHost: string): boolean {
 
 		let ignoreFailureProfile = Settings.active.currentIgnoreFailureProfile;

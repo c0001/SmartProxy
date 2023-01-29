@@ -48,10 +48,10 @@ export function getSmartProfileTypeIcon(profileType: SmartProfileType) {
 			return 'fab fa-windows text-primary';
 
 		case SmartProfileType.SmartRules:
-			return 'fas fa-magic text-success';
+			return 'fas fa-magic text-primary';
 
 		case SmartProfileType.AlwaysEnabledBypassRules:
-			return 'fas fa-globe-americas text-primary';
+			return 'fas fa-globe-americas text-success';
 
 		case SmartProfileType.IgnoreFailureRules:
 			return 'fas fa-scroll';
@@ -129,11 +129,17 @@ export class CommandMessages {
 
 	// Proxyable Resources
 	public static ProxyableGetInitialData = 'Proxyable_GetInitialData';
+	public static ProxyableGetInitialDataResponse = 'Proxyable_GetInitialData_Response';
 	public static ProxyableRemoveProxyableLog = 'Proxyable_RemoveProxyableLog';
 	public static ProxyableToggleProxyableDomain = 'Proxyable_ToggleProxyableDomain';
 
 	// WebFailedRequest
 	public static WebFailedRequestNotification = 'WebFailedRequest_Notification';
+
+	// Debug
+	public static DebugEnableDiagnostics = 'Debug_EnableDiagnostics';
+	public static DebugGetDiagnosticsLogs = 'Debug_GetDiagnosticsLogs';
+
 }
 export enum BrowserProxySettingsType {
 	none = 'none',
@@ -465,6 +471,9 @@ export function getSmartProfileTypeConfig(profileType: SmartProfileType): SmartP
 			return null;
 	}
 }
+export function getSmartProfileTypeName(profileType: SmartProfileType) {
+	return api.i18n.getMessage(`settings_SmartProfileType_${SmartProfileType[profileType]}`);
+}
 export function getBuiltinSmartProfiles(): SmartProfile[] {
 	return [
 		{
@@ -510,6 +519,28 @@ export function getBuiltinSmartProfiles(): SmartProfile[] {
 	];
 }
 
+export function getSmartProfileTypeDefaultId(profileType: SmartProfileType) {
+	switch (profileType) {
+		case SmartProfileType.Direct:
+			return SmartProfileTypeBuiltinIds.Direct;
+
+		case SmartProfileType.SystemProxy:
+			return SmartProfileTypeBuiltinIds.SystemProxy;
+
+		case SmartProfileType.SmartRules:
+			return SmartProfileTypeBuiltinIds.SmartRules;
+
+		case SmartProfileType.AlwaysEnabledBypassRules:
+			return SmartProfileTypeBuiltinIds.AlwaysEnabled;
+
+		case SmartProfileType.IgnoreFailureRules:
+			return SmartProfileTypeBuiltinIds.IgnoreRequestFailures;
+
+		default:
+			return '';
+	}
+}
+
 export enum ThemeType {
 	Auto,
 	Light,
@@ -517,6 +548,8 @@ export enum ThemeType {
 }
 
 export class GeneralOptions implements Cloneable {
+	public static defaultDarkThemeName: string = "themes-cosmo-dark";
+
 	public syncSettings: boolean = false;
 	public syncActiveProfile: boolean = true;
 	public syncActiveProxy: boolean = true;
@@ -532,7 +565,7 @@ export class GeneralOptions implements Cloneable {
 	public themeType: ThemeType = ThemeType.Auto;
 	public themesLight: string;
 	public themesLightCustomUrl: string;
-	public themesDark: string = "themes-cosmo-dark";
+	public themesDark: string = GeneralOptions.defaultDarkThemeName;
 	public themesDarkCustomUrl: string;
 
 	CopyFrom(source: any) {
@@ -793,6 +826,7 @@ export class SubscriptionStats {
 	lastTryDate: string;
 	lastStatus: boolean;
 	lastStatusMessage: string;
+	lastStatusProxyServerName: string;
 
 	public static updateStats(stats: SubscriptionStats, success: boolean, errorResult?: any) {
 		let now = new Date();
@@ -804,9 +838,10 @@ export class SubscriptionStats {
 		}
 		else {
 			stats.lastStatus = false;
-			stats.lastStatusMessage = errorResult?.toString();
+			stats.lastStatusMessage = errorResult?.message ?? errorResult?.toString();
 			stats.lastTryDate = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
 		}
+		stats.lastStatusProxyServerName = Settings.active?.currentProxyServer?.name;
 	}
 	public static ToString(stats: SubscriptionStats): string {
 		let status = `Status: ${stats.lastStatus ? 'Success' : 'Fail'}`;
@@ -827,6 +862,9 @@ export class SubscriptionStats {
 			if (stats.lastStatusMessage) {
 				status += `\r\n${api.i18n.getMessage("settingsSubscriptionStatsMessage")} ${stats.lastStatusMessage}`
 			}
+		}
+		if (stats.lastStatusProxyServerName) {
+			status += `\r\n${api.i18n.getMessage("settingsRulesGridColProxy")}: ${stats.lastStatusProxyServerName}`
 		}
 		if (stats.lastSuccessDate) {
 			status += `\r\n${api.i18n.getMessage("settingsSubscriptionStatsLastSuccess")} ${stats.lastSuccessDate}`

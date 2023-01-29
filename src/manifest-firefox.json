@@ -1,6 +1,6 @@
 {
 	"name": "__MSG_extensionName__",
-	"version": "0.9.99991",
+	"version": "1.0.4.2",
 	"manifest_version": 2,
 	"author": "Salar Khalilzadeh",
 	"description": "__MSG_extensionDescription__",
@@ -53,7 +53,7 @@
 			}
 		},
 		"next-proxy-server": {
-			"suggested_key": { 
+			"suggested_key": {
 				"default": "Ctrl+Shift+Period"
 			},
 			"description": "Switch to next proxy server as the active proxy"
@@ -92,7 +92,7 @@
 	"browser_specific_settings": {
 		"gecko": {
 			"id": "{b4314f2c-20c4-4f0b-a71e-fd5f59dca84c}",
-			"strict_min_version": "91.1.0"
+			"strict_min_version": "100.0"
 		}
 	}
 }

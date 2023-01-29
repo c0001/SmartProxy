@@ -31,6 +31,7 @@ import {
 	ProxyServerSubscription,
 	ProxyRule,
 	ProxyRulesSubscription,
+	ThemeType,
 } from './definitions';
 import { Debug } from '../lib/Debug';
 import { SettingsOperation } from './SettingsOperation';
@@ -110,7 +111,6 @@ export class Settings {
 	}
 
 	public static getRestorableSettings(config: any): SettingsConfig {
-
 		if (config.version < '0.9.999') {
 			let newConfig = Settings.migrateFromVersion09x(config);
 			return newConfig;
@@ -133,6 +133,12 @@ export class Settings {
 		if (config['options'] == null) {
 			config.options = new GeneralOptions();
 		}
+		if (config.options.themeType == null) {
+			config.options.themeType = ThemeType.Auto;
+		}
+		if (!config.options.themesDark) {
+			config.options.themesDark = GeneralOptions.defaultDarkThemeName;
+		}
 		if (config['firstEverInstallNotified'] == null) {
 			config.firstEverInstallNotified = false;
 		}
@@ -151,7 +157,7 @@ export class Settings {
 		config.version = environment.extensionVersion;
 	}
 
-	private static ensureIntegrityOfSettings(config: SettingsConfig) {
+	public static ensureIntegrityOfSettings(config: SettingsConfig) {
 		// proxyServers
 		if (config.proxyServers && config.proxyServers.length) {
 			let proxyServers: ProxyServer[] = [];
@@ -294,6 +300,7 @@ export class Settings {
 			}
 		}
 
+		Settings.ensureIntegrityOfSettings(newConfig);
 		return newConfig;
 	}
 

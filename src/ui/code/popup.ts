@@ -49,20 +49,24 @@ export class popup {
 
 	private static handleMessages(message: string, sender: any, sendResponse: Function) {
 
-		if (typeof (message) == "object") {
+		if (message != null && typeof (message) == "object") {
 
-			if (message["command"] === CommandMessages.WebFailedRequestNotification) {
-				if (message["tabId"] == null)
+			if (message!["command"] === CommandMessages.WebFailedRequestNotification) {
+				if (message!["tabId"] == null)
 					return;
 
-				let sourceTabId = popup.popupData.currentTabId;
+				let sourceTabId = popup.popupData?.currentTabId;
+				if (sourceTabId == null) {
+					PolyFill.runtimeSendMessage("Popup has invalid data. popupData is null" + JSON.stringify(popup.popupData));
+					return;
+				}
 
-				let tabId = message["tabId"];
+				let tabId = message!["tabId"];
 				if (tabId != sourceTabId) {
 					return;
 				}
 
-				let failedRequests: FailedRequestType[] = message["failedRequests"];
+				let failedRequests: FailedRequestType[] = message!["failedRequests"];
 
 				// display the failed requests
 				popup.populateFailedRequests(failedRequests);
@@ -249,14 +253,12 @@ export class popup {
 
 			// display select options
 			jQuery.each(dataForPopup.proxyServers, (index: number, proxyServer: ProxyServer) => {
-
 				// proxyServer
-				let $option = cmbActiveProxy.append(
+				cmbActiveProxy.append(
 					jQuery("<option>")
-					.attr("value", proxyServer.id)
-					.text(proxyServer.name));
-
-				$option.prop("selected", (proxyServer.id === currentProxyServerId));
+						.attr("value", proxyServer.id)
+						.text(proxyServer.name)
+						.prop("selected", proxyServer.id === currentProxyServerId));
 			});
 
 			if (dataForPopup.proxyServersSubscribed.length > 0) {

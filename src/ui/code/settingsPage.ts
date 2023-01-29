@@ -21,9 +21,10 @@ import { environment, api } from "../../lib/environment";
 import { Utils } from "../../lib/Utils";
 import { ProxyImporter } from "../../lib/ProxyImporter";
 import { RuleImporter } from "../../lib/RuleImporter";
-import { SettingsConfig, CommandMessages, SettingsPageInternalDataType, proxyServerProtocols, proxyServerSubscriptionObfuscate, ProxyServer, ProxyRule, ProxyRuleType, ProxyServerSubscription, GeneralOptions, ResultHolder, proxyServerSubscriptionFormat, SpecialRequestApplyProxyMode, specialRequestApplyProxyModeKeys, ProxyRulesSubscription, SubscriptionProxyRule, SmartProfile, SettingsPageSmartProfile, SmartProfileType, getSmartProfileTypeIcon, ProxyRuleSpecialProxyServer, getUserSmartProfileTypeConfig, themesCustomType, ThemeType, getSmartProfileTypeConfig, SubscriptionStats } from "../../core/definitions";
+import { SettingsConfig, CommandMessages, SettingsPageInternalDataType, proxyServerProtocols, proxyServerSubscriptionObfuscate, ProxyServer, ProxyRule, ProxyRuleType, ProxyServerSubscription, GeneralOptions, ResultHolder, proxyServerSubscriptionFormat, SpecialRequestApplyProxyMode, specialRequestApplyProxyModeKeys, ProxyRulesSubscription, SubscriptionProxyRule, SmartProfile, SettingsPageSmartProfile, SmartProfileType, getSmartProfileTypeIcon, ProxyRuleSpecialProxyServer, getUserSmartProfileTypeConfig, themesCustomType, ThemeType, getSmartProfileTypeConfig, SubscriptionStats, getSmartProfileTypeName } from "../../core/definitions";
 import { Debug } from "../../lib/Debug";
 import { ProfileOperations } from "../../core/ProfileOperations";
+import { SettingsOperation } from "../../core/SettingsOperation";
 
 const jq = jQuery;
 
@@ -34,6 +35,7 @@ export class settingsPage {
 	private static grdServerSubscriptions: any;
 	private static currentSettings: SettingsConfig;
 	private static pageSmartProfiles: SettingsPageSmartProfile[] = [];
+	private static debugDiagnosticsRequested = false;
 
 	/** Used to track changes and restore when reject changes selected */
 	private static originalSettings: SettingsConfig;
@@ -58,8 +60,6 @@ export class settingsPage {
 	}
 
 	private static handleMessages(message: any, sender: any, sendResponse: Function) {
-		Debug.log('settingsPage message> ', message);
-
 		let command: string;
 		if (typeof message == 'string') command = message;
 		else {
@@ -82,6 +82,11 @@ export class settingsPage {
 		PolyFill.runtimeSendMessage(CommandMessages.SettingsPageGetInitialData,
 			(dataForSettings: SettingsPageInternalDataType) => {
 				if (!dataForSettings) {
+					// Chrome Manifest 3 has this bug tha sends null message
+					if (!environment.chrome) {
+						// Source tab not found!
+						messageBox.error(api.i18n.getMessage("settingsInitializeFailed"));
+					}
 					return;
 				}
 				settingsPage.applySettingsPageData(dataForSettings);
@@ -191,6 +196,9 @@ export class settingsPage {
 		jq("#btnSaveServerSubscriptionsChanges").click(settingsPage.uiEvents.onClickSaveServerSubscriptionsChanges);
 
 		jq("#btnRejectServerSubscriptionsChanges").click(settingsPage.uiEvents.onClickRejectServerSubscriptionsChanges);
+
+		// Debug
+		jq("#btnEnableDiagnostics").click(settingsPage.uiEvents.onClickEnableDiagnostics);
 	}
 
 	private static initializeGrids() {
@@ -1295,7 +1303,7 @@ export class settingsPage {
 		profileTab.addClass('tab-smart-profile-item');
 		profileTab.find("#lblProfileName").html(profile.profileName + ` <i class="fas fa-pencil-alt fa-xs"></i>`);
 		profileTab.find("#txtSmartProfileName").val(profile.profileName);
-		profileTab.find("#lblProfileType").text(settingsPage.getSmartProfileTypeName(profile.profileType));
+		profileTab.find("#lblProfileType").text(getSmartProfileTypeName(profile.profileType));
 		profileTab.find("#lblProfileTypeIcon").addClass(getSmartProfileTypeIcon(profile.profileType));
 		profileTab.find(".label-profile-type-description").hide();
 		profileTab.find(`.label-profile-type-description-for-${SmartProfileType[profile.profileType]}`).show();
@@ -3549,7 +3557,8 @@ export class settingsPage {
 		},
 		onClickBackupComplete() {
 
-			let data = JSON.stringify(settingsPage.currentSettings);
+			let backupSettings = SettingsOperation.getStrippedSyncableSettings(settingsPage.currentSettings);
+			let data = JSON.stringify(backupSettings);
 			CommonUi.downloadData(data, "SmartProxy-FullBackup.json");
 		},
 		onClickRestoreBackup() {
@@ -3605,6 +3614,21 @@ export class settingsPage {
 				},
 				"application/json");
 		},
+		onClickEnableDiagnostics() {
+			if (settingsPage.debugDiagnosticsRequested) {
+				PolyFill.runtimeSendMessage({ command: CommandMessages.DebugGetDiagnosticsLogs }, (result) => {
+					const fileName = `smartproxy-diag-${new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')}.json`;
+					CommonUi.downloadData(result, fileName);
+				});
+			}
+			else if (confirm("Are you sure to enable diagnostics?")) {
+				settingsPage.debugDiagnosticsRequested = true;
+				PolyFill.runtimeSendMessage({ command: CommandMessages.DebugEnableDiagnostics });
+
+				alert("Diagnostics are enabled for this session only. Check this page for more info.");
+				window.open("https://github.com/salarcode/SmartProxy/wiki/Enable-Diagnostics")
+			}
+		}
 	};
 
 	//#endregion
@@ -3693,9 +3717,6 @@ export class settingsPage {
 		return result;
 	}
 
-	private static getSmartProfileTypeName(profileType: SmartProfileType) {
-		return api.i18n.getMessage(`settings_SmartProfileType_${SmartProfileType[profileType]}`);
-	}
 	//#endregion
 
 }

@@ -53,8 +53,11 @@ const settingsOperationLib = SettingsOperation;
 export class Core {
 	/** Start the application */
 	public static initializeApp() {
-		// comment this for debugging
-		Debug.disable();
+
+		Debug.disable(); // comment this for debugging
+		//Debug.enableDiagnostics(true); // uncomment for verbose logs
+
+		proxyEngineLib.configureEnginePrematurely();
 
 		const settingReadComplete = () => {
 			DiagDebug?.trace("Core.settingReadComplete start");
@@ -78,6 +81,8 @@ export class Core {
 			UpdateManager.readUpdateInfo();
 
 			DiagDebug?.trace("Core.settingReadComplete end");
+
+			Core.dumpDiagnosticsInfo();
 		};
 
 		settingsLib.onInitializedLocally = settingReadComplete;
@@ -278,7 +283,7 @@ export class Core {
 				let domainList = message.domainList;
 				let tabId = message.tabId;
 
-				ProfileRules.enableByHostnameList(domainList);
+				let result = ProfileRules.enableByHostnameList(domainList);
 
 				let updatedFailedRequests = WebFailedRequestMonitor.removeDomainsFromTabFailedRequests(tabId, domainList);
 
@@ -292,8 +297,9 @@ export class Core {
 				Core.setBrowserActionStatus();
 
 				// send the responses
-				if (updatedFailedRequests != null && sendResponse) {
+				if (sendResponse) {
 					sendResponse({
+						result: result,
 						failedRequests: updatedFailedRequests,
 					});
 				}
@@ -307,7 +313,7 @@ export class Core {
 				let domainList: string[] = message.domainList;
 				let tabId = message.tabId;
 
-				ProfileRules.enableByHostnameListIgnoreFailureRules(domainList);
+				let result = ProfileRules.enableByHostnameListIgnoreFailureRules(domainList);
 
 				let updatedFailedRequests = WebFailedRequestMonitor.removeDomainsFromTabFailedRequests(tabId, domainList);
 
@@ -317,8 +323,9 @@ export class Core {
 				settingsLib.updateActiveSettings();
 
 				// send the responses
-				if (updatedFailedRequests != null && sendResponse) {
+				if (sendResponse) {
 					sendResponse({
+						result: result,
 						failedRequests: updatedFailedRequests,
 					});
 				}
@@ -358,6 +365,7 @@ export class Core {
 				settingsOperationLib.saveDefaultProxyServer();
 				settingsOperationLib.saveAllSync();
 
+				settingsLib.updateActiveSettings();
 				// notify
 				proxyEngineLib.updateBrowsersProxyConfig();
 
@@ -537,6 +545,7 @@ export class Core {
 			}
 			case CommandMessages.DebugEnableDiagnostics: {
 				Debug.enableDiagnostics();
+				Core.dumpDiagnosticsInfo();
 				break;
 			}
 			case CommandMessages.DebugGetDiagnosticsLogs: {
@@ -1010,7 +1019,33 @@ export class Core {
 		// start handling messages
 		api.runtime.onMessage.addListener(Core.handleMessages);
 	}
+
+	private static dumpDiagnosticsInfo() {
+		if (!DiagDebug) return;
+		PolyFill.getExtensionVersion((version) => {
+			let settings = Settings.current;
+			let settingsActive = Settings.active;
+			DiagDebug.info("DiagnosticsInfo", {
+				smartProxyVersion: version,
+				environmentName: environment.name,
+				environmentVersion: environment.version,
+				buildForBrowser: environment.browserConfig.name,
+				activeProfile: settingsActive?.activeProfile.profileName,
+				activeProfileRulesCount: settingsActive?.activeProfile.compiledRules?.Rules?.length ?? 0,
+				activeProfileWhiteRulesCount: settingsActive?.activeProfile.compiledRules?.WhitelistRules?.length ?? 0,
+				currentProxyServer: settingsActive?.currentProxyServer.name,
+				syncSettings: settings.options.syncSettings,
+				syncActiveProfile: settings.options.syncActiveProfile,
+				syncActiveProxy: settings.options.syncActiveProxy,
+				hasActiveRuleSubscription: settings?.proxyProfiles?.some(f => f.rulesSubscriptions.some(s => s.enabled)) ?? false,
+				hasActiveProxySubscription: settings?.proxyServerSubscriptions?.some(f => f.enabled) ?? false,
+
+			});
+		});
+	}
 }
+
+console.log("Core.ts initializeApp()...");
 // start the application
 Core.initializeApp();
 console.log('Core.ts initializeApp() DONE');

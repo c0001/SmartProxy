@@ -31,11 +31,11 @@ import {
 	ProxyServerSubscription,
 	ProxyRule,
 	ProxyRulesSubscription,
-	ThemeType,
+	ThemeType
 } from './definitions';
 import { Debug } from '../lib/Debug';
 import { SettingsOperation } from './SettingsOperation';
-import { api, environment } from '../lib/environment';
+import { api } from '../lib/environment';
 import { Utils } from '../lib/Utils';
 import { ProfileOperations } from './ProfileOperations';
 
@@ -59,6 +59,8 @@ export class Settings {
 	}
 
 	private static onInitializeGetLocalData(data: any) {
+		Debug.log("onInitializeGetLocalData, local data: ", data);
+
 		data = Settings.getRestorableSettings(data);
 
 		Settings.current = data;
@@ -81,6 +83,8 @@ export class Settings {
 	private static onInitializeGetSyncData(data: any) {
 		try {
 			let syncedSettings = Utils.decodeSyncData(data);
+
+			Debug.log("onInitializeGetSyncData, sync data: ", data);
 
 			// only if sync settings is enabled
 			if (syncedSettings && syncedSettings.options) {
@@ -154,7 +158,10 @@ export class Settings {
 		if (config['proxyServerSubscriptions'] == null || !Array.isArray(config.proxyServerSubscriptions)) {
 			config.proxyServerSubscriptions = [];
 		}
-		config.version = environment.extensionVersion;
+
+		PolyFill.getExtensionVersion((version: string) => {
+			config.version = version;
+		});
 	}
 
 	public static ensureIntegrityOfSettings(config: SettingsConfig) {
@@ -237,6 +244,9 @@ export class Settings {
 					}
 				}
 				delete oldConfig.proxyRulesSubscriptions;
+			}
+			else {
+				Debug.warn(`Migrate has failed for SmartRules because no SmartRules is found in the new configuration`);
 			}
 		}
 		// bypassList

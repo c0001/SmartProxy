@@ -20,6 +20,7 @@ import { CommandMessages, PopupInternalDataType, ProxyableDomainType, FailedRequ
 import { PolyFill } from "../../lib/PolyFill";
 import { CommonUi } from "./CommonUi";
 import { Utils } from "../../lib/Utils";
+import { ProfileOperations } from "../../core/ProfileOperations";
 
 export class popup {
 	private static popupData: PopupInternalDataType = null;
@@ -536,7 +537,15 @@ export class popup {
 
 		let domainList = popup.getSelectedFailedRequests();
 
-		if (domainList.length)
+		if (domainList.length) {
+
+			if (!popup.activeProfile.profileTypeConfig.editable ||
+				ProfileOperations.profileTypeSupportsRules(popup.activeProfile.profileType)) {
+				let message = api.i18n.getMessage("popupProfileTypeDoesNotSupportsRules").replace("{0}", popup.activeProfile.profileName);
+				messageBox.error(message);
+				return;
+			}
+
 			// Add the selected domains to rule list?
 			if ((!environment.chrome && environment.version < environment.bugFreeVersions.firefoxConfirmInPopupWorks) ||
 				confirm(api.i18n.getMessage("popupAddFailedRequestsConfirm"))) {
@@ -550,23 +559,41 @@ export class popup {
 						tabId: popup.popupData.currentTabId
 					},
 					(response: any) => {
-						if (!response) return;
-						if (response.failedRequests) {
+						let close = true;
+						try {
+							if (!response) return;
+							if (response.failedRequests) {
 
-							// display the updated failed requests
-							popup.populateFailedRequests(response.failedRequests);
+								// display the updated failed requests
+								popup.populateFailedRequests(response.failedRequests);
+							}
+							let result = response.result;
+							if (result) {
+								if (result.success && result.message) {
+									messageBox.success(result.message, 4000);
+									close = false;
+								}
+								else if (!result.success && result.message) {
+									messageBox.error(result.message);
+									close = false;
+								}
+							}
+						} finally {
+							if (close) {
+								popup.closeSelf();
+							}
 						}
 					});
-
-				popup.closeSelf();
 			}
+		}
 	}
 
 	private static onAddIgnoredFailuresClick() {
 
 		let domainList = popup.getSelectedFailedRequests();
 
-		if (domainList.length)
+		if (domainList.length) {
+
 			// Add the selected domains to rule list?
 			if ((!environment.chrome && environment.version < environment.bugFreeVersions.firefoxConfirmInPopupWorks) ||
 				confirm(api.i18n.getMessage("popupAddIgnoredFailuresConfirm"))) {
@@ -580,16 +607,33 @@ export class popup {
 						tabId: popup.popupData.currentTabId
 					},
 					(response: any) => {
-						if (!response) return;
-						if (response.failedRequests) {
+						let close = true;
+						try {
+							if (!response) return;
+							if (response.failedRequests) {
 
-							// display the updated failed requests
-							popup.populateFailedRequests(response.failedRequests);
+								// display the updated failed requests
+								popup.populateFailedRequests(response.failedRequests);
+							}
+							let result = response.result;
+							if (result) {
+								if (result.success && result.message) {
+									messageBox.success(result.message, 4000);
+									close = false;
+								}
+								else if (!result.success && result.message) {
+									messageBox.error(result.message);
+									close = false;
+								}
+							}
+						} finally {
+							if (close) {
+								popup.closeSelf();
+							}
 						}
 					});
-
-				popup.closeSelf();
 			}
+		}
 	}
 	private static closeSelf() {
 		if (!environment.mobile) {

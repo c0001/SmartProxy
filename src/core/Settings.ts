@@ -49,35 +49,54 @@ export class Settings {
 	public static onInitializedLocally: Function = null;
 	public static onInitializedRemoteSync: Function = null;
 
-	public static initialize() {
-		Settings.current = new SettingsConfig();
+	private static onInitializedCompleted: EventTarget = new EventTarget();
 
-		PolyFill.storageLocalGet(null, Settings.onInitializeGetLocalData, Settings.onInitializeGetLocalError);
+	public static initialize() {
+		me.current = new SettingsConfig();
+
+		PolyFill.storageLocalGet(null, me.onInitializeGetLocalData, me.onInitializeGetLocalError);
 
 		// handle synced settings changes
 		api.storage.onChanged.addListener(SettingsOperation.syncOnChanged);
 	}
 
+	/** Register for a one time event of when all settings are loaded */
+	public static addInitializeCompletedEventListener(listener: EventListenerOrEventListenerObject) {
+		me.onInitializedCompleted.addEventListener('onInitializedCompleted', listener,
+			{
+				passive: true,
+				once: true
+			});
+	}
+	public static removeInitializeCompletedEventListener(listener: EventListenerOrEventListenerObject) {
+		me.onInitializedCompleted.removeEventListener('onInitializedCompleted', listener);
+	}
+	private static raiseInitializeCompletedEvent() {
+		me.onInitializedCompleted.dispatchEvent(new Event('onInitializedCompleted'));
+	}
+
 	private static onInitializeGetLocalData(data: any) {
 		Debug.log("onInitializeGetLocalData, local data: ", data);
 
-		data = Settings.getRestorableSettings(data);
+		data = me.getRestorableSettings(data);
 
-		Settings.current = data;
-		Settings.updateActiveSettings();
+		me.current = data;
+		me.updateActiveSettings();
 
 		// read all the synced data along with synced ones
-		PolyFill.storageSyncGet(null, Settings.onInitializeGetSyncData, Settings.onInitializeGetSyncError);
+		PolyFill.storageSyncGet(null, me.onInitializeGetSyncData, me.onInitializeGetSyncError);
 
-		if (Settings.onInitializedLocally)
-			Settings.onInitializedLocally();
+		if (me.onInitializedLocally)
+			me.onInitializedLocally();
 	}
 
 	private static onInitializeGetLocalError(error: any) {
 		Debug.error(`settingsOperation.initialize error: ${error.message}`);
 
-		if (Settings.onInitializedLocally)
-			Settings.onInitializedLocally();
+		if (me.onInitializedLocally)
+			me.onInitializedLocally();
+
+		me.raiseInitializeCompletedEvent();
 	}
 
 	private static onInitializeGetSyncData(data: any) {
@@ -90,38 +109,40 @@ export class Settings {
 			if (syncedSettings && syncedSettings.options) {
 				if (syncedSettings.options.syncSettings) {
 					// use synced settings
-					syncedSettings = Settings.getRestorableSettings(syncedSettings);
-					Settings.revertSyncOptions(syncedSettings);
+					syncedSettings = me.getRestorableSettings(syncedSettings);
+					me.revertSyncOptions(syncedSettings);
 
-					Settings.current = syncedSettings;
+					me.current = syncedSettings;
 				} else {
 					// sync is disabled
 					syncedSettings.options.syncSettings = false;
 				}
 
-				Settings.currentOptionsSyncSettings = syncedSettings.options.syncSettings;
-				Settings.updateActiveSettings();
+				me.currentOptionsSyncSettings = syncedSettings.options.syncSettings;
+				me.updateActiveSettings();
 			}
 		} catch (e) {
 			Debug.error(`settingsOperation.readSyncedSettings> onGetSyncData error: ${e} \r\n ${data}`);
 		}
 
-		if (Settings.onInitializedRemoteSync)
-			Settings.onInitializedRemoteSync();
+		if (me.onInitializedRemoteSync)
+			me.onInitializedRemoteSync();
+
+		me.raiseInitializeCompletedEvent();
 	}
 
 	private static onInitializeGetSyncError(error: Error) {
 		Debug.error(`settingsOperation.readSyncedSettings error: ${error.message}`);
+
+		me.raiseInitializeCompletedEvent();
 	}
 
 	public static getRestorableSettings(config: any): SettingsConfig {
-		if (config.version < '0.9.999') {
-			let newConfig = Settings.migrateFromVersion09x(config);
-			return newConfig;
-		}
 
-		this.setDefaultSettings(config);
-		this.ensureIntegrityOfSettings(config);
+		me.setDefaultSettings(config);
+		me.migrateFromOldVersions(config);
+		me.ensureIntegrityOfSettings(config);
+
 		return config;
 	}
 
@@ -153,7 +174,7 @@ export class Settings {
 			config.proxyProfiles = getBuiltinSmartProfiles();
 		}
 		else
-			config.proxyProfiles = Settings.setDefaultSettingsSmartProfiles(config.proxyProfiles);
+			config.proxyProfiles = me.setDefaultSettingsSmartProfiles(config.proxyProfiles);
 
 		if (config['proxyServerSubscriptions'] == null || !Array.isArray(config.proxyServerSubscriptions)) {
 			config.proxyServerSubscriptions = [];
@@ -185,53 +206,97 @@ export class Settings {
 			}
 			config.proxyServers = proxyServers;
 		}
+
+		if (!config.defaultProxyServerId && config.proxyServers?.length) {
+			// reset to the first proxy if it is not found
+			config.defaultProxyServerId = config.proxyServers[0].id;
+		}
 	}
 
-	public static migrateFromVersion09x(oldConfig: any): SettingsConfig {
-		/** Migrating from old version 0.9.x to v1.0  */
+	/** Migrates settings from all old versions */
+	public static migrateFromOldVersions(config: any): SettingsConfig {
+		// ----------
+		// forcing to use new options
 
-		let newConfig = new SettingsConfig();
-		Settings.setDefaultSettings(newConfig);
+		let forceValidation = config.version <= '0.9.9999';
+		if (forceValidation) {
 
-		if (oldConfig.options) {
-			newConfig.options.CopyFrom(oldConfig.options);
-		}
+			let newOptions = new GeneralOptions();
+			if (config.options) {
+				newOptions.CopyFrom(config.options);
+			}
+			config.options = newOptions;
 
-		// proxyServers
-		if (oldConfig.proxyServers && oldConfig.proxyServers.length) {
-			for (const oldServer of oldConfig.proxyServers) {
-				let newServer = new ProxyServer();
-				newServer.CopyFrom(oldServer);
+			// proxyServers
+			if (config.proxyServers && config.proxyServers.length) {
+				let proxyServers = [];
 
-				if (newServer.isValid())
-					newConfig.proxyServers.push(newServer);
+				for (const oldServer of config.proxyServers) {
+					let newServer = new ProxyServer();
+					newServer.CopyFrom(oldServer);
+
+					if (newServer.isValid())
+						proxyServers.push(newServer);
+				}
+				config.proxyServers = proxyServers;
+			}
+
+			// proxyServerSubscriptions
+			if (config.proxyServerSubscriptions && config.proxyServerSubscriptions.length) {
+
+				let proxyServerSubscriptions = [];
+
+				for (const oldSub of config.proxyServerSubscriptions) {
+					let newSub = new ProxyServerSubscription();
+					newSub.CopyFrom(oldSub);
+
+					if (newSub.isValid())
+						proxyServerSubscriptions.push(newSub);
+				}
+				config.proxyServerSubscriptions = proxyServerSubscriptions;
 			}
 		}
 
-		// proxyServerSubscriptions
-		if (oldConfig.proxyServerSubscriptions && oldConfig.proxyServerSubscriptions.length) {
-			for (const oldSub of oldConfig.proxyServerSubscriptions) {
-				let newSub = new ProxyServerSubscription();
-				newSub.CopyFrom(oldSub);
+		if (config.proxyProfiles) {
+			let profiles = config.proxyProfiles as SmartProfile[];
 
-				if (newSub.isValid())
-					newConfig.proxyServerSubscriptions.push(newSub);
+			for (const smartProfile of profiles) {
+				// making sure all profiles have ID
+				if (!smartProfile.profileId) {
+					Debug.warn("Found and fixed a profile without id> ", smartProfile.profileName);
+					ProfileOperations.ensureProfileId(smartProfile);
+				}
+
+				// making sure all names are unique
+				if (profiles.find(x => x.profileName == smartProfile.profileName &&
+					x.profileId != smartProfile.profileId)) {
+
+					Debug.warn("Found and fixed a profile with same name> ", smartProfile.profileName);
+					smartProfile.profileName += " - " + smartProfile.profileId;
+				}
 			}
 		}
+
+
+		// ----------
+		// migrating old properties if they exists
 
 		// proxyRules
-		if (oldConfig.proxyRules && oldConfig.proxyRules.length) {
-			let newSmartRules = newConfig.proxyProfiles.find(f => f.profileType == SmartProfileType.SmartRules);
+		if (config.proxyRules && config.proxyRules.length &&
+			config.proxyProfiles) {
+
+			let newSmartRules = config.proxyProfiles.find((f: SmartProfile) => f.profileType == SmartProfileType.SmartRules);
 			if (newSmartRules) {
-				for (const oldRule of oldConfig.proxyRules) {
+				for (const oldRule of config.proxyRules) {
 					let newRule = new ProxyRule();
 					newRule.CopyFrom(oldRule);
 
 					if (newRule.isValid())
 						newSmartRules.proxyRules.push(newRule);
 				}
+				delete config.proxyRules;
 
-				let oldProxyRulesSubs = oldConfig.proxyRulesSubscriptions;
+				let oldProxyRulesSubs = config.proxyRulesSubscriptions;
 				if (oldProxyRulesSubs && oldProxyRulesSubs.length) {
 					newSmartRules.rulesSubscriptions = newSmartRules.rulesSubscriptions || [];
 
@@ -243,38 +308,47 @@ export class Settings {
 							newSmartRules.rulesSubscriptions.push(newRuleSub);
 					}
 				}
-				delete oldConfig.proxyRulesSubscriptions;
+				delete config.proxyRulesSubscriptions;
 			}
 			else {
 				Debug.warn(`Migrate has failed for SmartRules because no SmartRules is found in the new configuration`);
 			}
 		}
+
 		// bypassList
-		if (oldConfig.bypass && oldConfig.bypass.bypassList && oldConfig.bypass.bypassList.length) {
-			let newAlwaysEnabledRules = newConfig.proxyProfiles.find(f => f.profileType == SmartProfileType.AlwaysEnabledBypassRules);
+		if (config.bypass && config.bypass.bypassList && config.bypass.bypassList.length &&
+			config.proxyProfiles) {
 
-			let enabledForAlways = oldConfig.bypass.enableForAlways != null ? oldConfig.bypass.enableForAlways : true;
+			let newAlwaysEnabledRules = config.proxyProfiles.find((f: SmartProfile) => f.profileType == SmartProfileType.AlwaysEnabledBypassRules);
+			if (newAlwaysEnabledRules) {
+				let enabledForAlways = config.bypass.enableForAlways != null ? config.bypass.enableForAlways : true;
 
-			for (const bypass of oldConfig.bypass.bypassList) {
-				if (!bypass)
-					continue;
+				for (const bypass of config.bypass.bypassList) {
+					if (!bypass)
+						continue;
 
-				let newRule = new ProxyRule();
-				newRule.ruleType = ProxyRuleType.DomainSubdomain;
-				newRule.ruleSearch = bypass;
-				newRule.hostName = bypass;
-				newRule.enabled = enabledForAlways;
-				newRule.whiteList = true;
+					let newRule = new ProxyRule();
+					newRule.ruleType = ProxyRuleType.DomainSubdomain;
+					newRule.ruleSearch = bypass;
+					newRule.hostName = bypass;
+					newRule.enabled = enabledForAlways;
+					newRule.whiteList = true;
 
-				newAlwaysEnabledRules.proxyRules.push(newRule);
+					newAlwaysEnabledRules.proxyRules.push(newRule);
+				}
 			}
+			else {
+				Debug.warn(`Migrate has failed for AlwaysEnabledRules because no AlwaysEnabledRules is found in the new configuration`);
+			}
+
+			delete config.bypass;
 		}
 
 		// proxyMode
-		if (oldConfig.proxyMode != null) {
+		if (config.proxyMode != null && config.proxyProfiles) {
 			let activeProfileType: SmartProfileType = -1;
 
-			switch (+oldConfig.proxyMode) {
+			switch (+config.proxyMode) {
 				case 0 /** Direct */:
 					activeProfileType = SmartProfileType.Direct;
 					break;
@@ -292,31 +366,35 @@ export class Settings {
 					break;
 			}
 			if (activeProfileType >= 0) {
-				let activeProfile = newConfig.proxyProfiles.find(v => v.profileType == activeProfileType);
+				let activeProfile = config.proxyProfiles.find((f: SmartProfile) => f.profileType == activeProfileType);
 				if (activeProfile) {
-					newConfig.activeProfileId = activeProfile.profileId;
+					config.activeProfileId = activeProfile.profileId;
 				}
 			}
+
+			delete config.proxyMode;
 		}
 
 		// activeProxyServer
-		if (oldConfig.activeProxyServer && oldConfig.activeProxyServer.name &&
-			newConfig.proxyServers.length) {
-			let activeProxyServerName = oldConfig.activeProxyServer.name;
+		if (config.activeProxyServer && config.activeProxyServer.name && config.proxyServers.length &&
+			config.proxyServers) {
 
-			let activeProxyServer = newConfig.proxyServers.find(a => a.name == activeProxyServerName);
+			let activeProxyServerName = config.activeProxyServer.name;
+
+			let activeProxyServer = config.proxyServers.find(a => a.name == activeProxyServerName);
 			if (activeProxyServer) {
-				newConfig.defaultProxyServerId = activeProxyServer.id;
+				config.defaultProxyServerId = activeProxyServer.id;
 			}
+
+			delete config.activeProxyServer;
 		}
 
-		Settings.ensureIntegrityOfSettings(newConfig);
-		return newConfig;
+		return config;
 	}
 
 	/** In local options if sync is disabled for these particular options, don't update them from sync server */
 	public static revertSyncOptions(syncedConfig: SettingsConfig) {
-		let settings = Settings.current;
+		let settings = me.current;
 
 		syncedConfig.options.syncActiveProxy = settings.options.syncActiveProxy;
 		syncedConfig.options.syncActiveProfile = settings.options.syncActiveProfile;
@@ -441,9 +519,9 @@ export class Settings {
 
 		if (!server.name) {
 			return { success: false, message: api.i18n.getMessage('settingsServerNameRequired') };
-		} else if (Settings.current) {
+		} else if (me.current) {
 			if (checkExistingName) {
-				const currentServers = Settings.current.proxyServers;
+				const currentServers = me.current.proxyServers;
 
 				for (let srv of currentServers) {
 					if (srv.name == server.name) {
@@ -468,12 +546,11 @@ export class Settings {
 
 	public static updateActiveSettings(fallback: boolean = true) {
 		/** Updating `Settings.active` */
-
-		let settings = Settings.current;
+		let settings = me.current;
 		if (!settings)
 			return;
 
-		let active = Settings.active ?? (Settings.active = new SettingsActive());
+		let active = me.active ?? (me.active = new SettingsActive());
 
 		let foundActiveProfile = ProfileOperations.findSmartProfileById(settings.activeProfileId, settings.proxyProfiles);
 		if (!foundActiveProfile && fallback) {
@@ -517,3 +594,5 @@ export class Settings {
 			active.currentIgnoreFailureProfile = ProfileOperations.compileSmartProfile(profileIgnoreFailureRules);
 	}
 }
+
+let me = Settings;

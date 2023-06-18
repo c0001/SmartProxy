@@ -76,12 +76,15 @@ export class Settings {
 	}
 
 	private static onInitializeGetLocalData(data: any) {
-		Debug.log("onInitializeGetLocalData, local data: ", data);
+		Debug.log("onInitializeGetLocalData, local data:", JSON.stringify(data));
 
 		data = me.getRestorableSettings(data);
 
 		me.current = data;
 		me.updateActiveSettings();
+
+		SettingsOperation.saveAllLocal(true);
+		me.cleanupLocalOldVersionResidueFromStorage();
 
 		// read all the synced data along with synced ones
 		PolyFill.storageSyncGet(null, me.onInitializeGetSyncData, me.onInitializeGetSyncError);
@@ -103,7 +106,7 @@ export class Settings {
 		try {
 			let syncedSettings = Utils.decodeSyncData(data);
 
-			Debug.log("onInitializeGetSyncData, sync data: ", data);
+			Debug.log("onInitializeGetSyncData, sync data: ", JSON.stringify(syncedSettings));
 
 			// only if sync settings is enabled
 			if (syncedSettings && syncedSettings.options) {
@@ -122,7 +125,7 @@ export class Settings {
 				me.updateActiveSettings();
 			}
 		} catch (e) {
-			Debug.error(`settingsOperation.readSyncedSettings> onGetSyncData error: ${e} \r\n ${data}`);
+			Debug.error(`settingsOperation.readSyncedSettings> onGetSyncData error: ${e} \r\n`, JSON.stringify(data));
 		}
 
 		if (me.onInitializedRemoteSync)
@@ -214,7 +217,7 @@ export class Settings {
 	}
 
 	/** Migrates settings from all old versions */
-	public static migrateFromOldVersions(config: any): SettingsConfig {
+	public static migrateFromOldVersions(config: any) {
 		// ----------
 		// forcing to use new options
 
@@ -388,8 +391,23 @@ export class Settings {
 
 			delete config.activeProxyServer;
 		}
+	}
 
-		return config;
+
+	/** Properties of old versions need to be removed specificity otherwise they will stay and not go away, causing repeat of migration process. */
+	public static cleanupLocalOldVersionResidueFromStorage() {
+		PolyFill.storageLocalGet(null,
+			function (config: any) {
+				// ----------
+				let removeKeys: string[] = [
+					'proxyRules',
+					'proxyRulesSubscriptions',
+					'bypass',
+					'proxyMode',
+					'activeProxyServer'
+				];
+				PolyFill.storageLocalRemove(removeKeys);
+			});
 	}
 
 	/** In local options if sync is disabled for these particular options, don't update them from sync server */
@@ -503,7 +521,7 @@ export class Settings {
 		message?: string;
 		result?: any;
 	} {
-		if (server.port <= 0 || server.port >= 65535) {
+		if (server.port <= 0 || server.port > 65535) {
 			return {
 				success: false,
 				message: api.i18n.getMessage('settingsServerPortInvalid').replace('{0}', `${server.host}:${server.port}`),

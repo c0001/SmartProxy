@@ -322,7 +322,6 @@ export class ProxyEngineFirefox {
 
 			if (activeProfileType == SmartProfileType.SmartRules) {
 				// NOTE: by default no proxy is applied in SmartRules profile
-
 				let compiledRules = settingsActive.activeProfile.compiledRules;
 
 				// user whitelist rules/ don't apply proxy
@@ -339,7 +338,7 @@ export class ProxyEngineFirefox {
 					return makeResultForMatchedRule(userMatchedRule);
 				}
 
-				// subscription whitelist rules/ dont' apply proxy
+				// subscription whitelist rules/ don`t apply proxy
 				let subWhitelistMatchedRule = ProxyRules.findMatchedUrlInRules(requestDetails.url, compiledRules.WhitelistSubscriptionRules)
 				if (subWhitelistMatchedRule) {
 					proxyLog.ruleSource = CompiledProxyRuleSource.Subscriptions;

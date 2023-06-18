@@ -180,8 +180,7 @@ export class PopupInternalDataType {
 	public currentTabIndex: number;
 	public currentTabIsIncognito: boolean;
 	public proxyServersSubscribed: ProxyServer[];
-	public updateAvailableText: string;
-	public updateInfo: any;
+	public updateInfo: UpdateInfo;
 	public failedRequests: FailedRequestType[];
 	public notSupportedSetProxySettings: boolean;
 	public notAllowedSetProxySettings: boolean;
@@ -220,8 +219,6 @@ export type ProxyableDomainType = {
 
 export type SettingsPageInternalDataType = {
 	settings: SettingsConfig;
-	updateAvailableText: string;
-	updateInfo: any;
 };
 export class SettingsPageSmartProfile {
 	smartProfile: SmartProfile;
@@ -306,6 +303,8 @@ export class SettingsConfig implements Cloneable {
 	constructor() { }
 	public product: string = 'SmartProxy';
 	public version: string = '';
+	public configVersion: string = '';
+	public syncHash: string = '';
 	public proxyProfiles: SmartProfile[] = getBuiltinSmartProfiles();
 	public activeProfileId: string = SmartProfileTypeBuiltinIds.Direct;
 	public defaultProxyServerId: string;
@@ -314,6 +313,7 @@ export class SettingsConfig implements Cloneable {
 	public proxyServerSubscriptions: ProxyServerSubscription[] = [];
 	public options: GeneralOptions;
 	public firstEverInstallNotified: boolean = false;
+	public updateInfo: UpdateInfo = null;
 
 	CopyFrom(source: SettingsConfig): void {
 		this.options = new GeneralOptions();
@@ -352,6 +352,8 @@ export class SettingsConfig implements Cloneable {
 
 		this.firstEverInstallNotified = source.firstEverInstallNotified;
 		this.version = source.version;
+		this.syncHash = source.syncHash;
+		this.configVersion = source.configVersion;
 	}
 }
 
@@ -436,7 +438,7 @@ export function getSmartProfileTypeConfig(profileType: SmartProfileType): SmartP
 				builtin: true,
 				editable: true,
 				selectable: true,
-				supportsSubscriptions: false,
+				supportsSubscriptions: true,
 				supportsProfileProxy: true,
 				customProxyPerRule: true,
 				canBeDisabled: true,
@@ -641,7 +643,7 @@ export class ProxyServer extends ProxyServerConnectDetails implements Cloneable 
 
 		if (!this.name || !this.protocol)
 			return false;
-		if (!this.port || this.port <= 0 || this.port >= 65535)
+		if (!this.port || this.port <= 0 || this.port > 65535)
 			return false;
 		if (!this.host || !Utils.isValidHost(this.host))
 			return false;
@@ -701,7 +703,18 @@ export class ProxyRule implements Cloneable {
 		return '';
 	}
 	get proxyName(): string {
-		if (!this.proxy) return null;
+		if (this.whiteList) {
+			return '-';
+		}
+		if (!this.proxy) {
+			if (this.proxyServerId == ProxyRuleSpecialProxyServer.DefaultGeneral)
+				return api.i18n.getMessage("settingsRulesProxyDefault");
+
+			if (this.proxyServerId == ProxyRuleSpecialProxyServer.ProfileProxy)
+				return api.i18n.getMessage("settingsRulesProxyFromProfile");
+
+			return null;
+		}
 
 		return this.proxy.name;
 	}
@@ -1041,4 +1054,12 @@ export class ProxyRulesSubscription {
 
 		return true;
 	}
+}
+
+export class UpdateInfo {
+	public updateIsAvailable: boolean = false;
+	public isBrowserSpecific: boolean = false;
+	public version: string;
+	public versionName: string;
+	public downloadPage: URL;
 }

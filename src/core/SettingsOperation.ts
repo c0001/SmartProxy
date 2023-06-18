@@ -19,7 +19,7 @@ import { PolyFill } from "../lib/PolyFill";
 import { Debug } from "../lib/Debug";
 import { Settings } from "./Settings";
 import { Utils } from "../lib/Utils";
-import { GeneralOptions, ProxyServer, ProxyServerSubscription, SettingsConfig, SmartProfile } from "./definitions";
+import { GeneralOptions, ProxyServer, ProxyServerSubscription, SettingsConfig, SmartProfile, UpdateInfo } from "./definitions";
 import { ProxyEngine } from "./ProxyEngine";
 import { ProxyRules } from "./ProxyRules";
 import { SubscriptionUpdater } from "./SubscriptionUpdater";
@@ -34,7 +34,7 @@ export class SettingsOperation {
 
 	public static getStrippedSyncableSettings(settings: SettingsConfig): SettingsConfig {
 		// deep clone required
-		var settingsCopy: SettingsConfig = JSON.parse(JSON.stringify(settings));
+		let settingsCopy: SettingsConfig = JSON.parse(JSON.stringify(settings));
 
 		if (settingsCopy.proxyProfiles && settingsCopy.proxyProfiles.length) {
 			for (const profile of settingsCopy.proxyProfiles) {
@@ -54,6 +54,13 @@ export class SettingsOperation {
 		return settingsCopy;
 	}
 
+	public static getBackupOfSettings(settings: SettingsConfig): SettingsConfig {
+		let settingsCopy = SettingsOperation.getStrippedSyncableSettings(settings);
+		settingsCopy.configVersion = undefined;
+		settingsCopy.syncHash = undefined;
+
+		return settingsCopy;
+	}
 	public static readSyncedSettings(success: Function) {
 		// getting synced data
 		polyFillLib.storageSyncGet(null,
@@ -67,6 +74,11 @@ export class SettingsOperation {
 				// only if sync settings is enabled
 				if (syncedSettings &&
 					syncedSettings.options) {
+
+					if (syncedSettings.syncHash == Settings.current.syncHash) {
+						Debug.log(`SyncHash is same, ignoring the sync data.`, Settings.current.syncHash);
+						return;
+					}
 
 					if (syncedSettings.options.syncSettings) {
 
@@ -88,7 +100,7 @@ export class SettingsOperation {
 						success();
 				}
 			} catch (e) {
-				Debug.error(`SettingsOperation.readSyncedSettings> onGetSyncData error: ${e} \r\n ${data}`);
+				Debug.error(`SettingsOperation.readSyncedSettings> onGetSyncData error: ${e} \r\n`, JSON.stringify(data));
 			}
 		}
 
@@ -307,16 +319,18 @@ export class SettingsOperation {
 		});
 	}
 	public static saveAllSync(saveToSyncServer: boolean = true) {
+
+		Settings.current.syncHash = Utils.getNewUniqueIdString();
+		// before anything save everything in local
+		me.saveAllLocal(true);
+
 		if (!Settings.current.options.syncSettings &&
 			!Settings.currentOptionsSyncSettings) {
 			return;
 		}
 
-		// before anything save everything in local
-		SettingsOperation.saveAllLocal(true);
-
 		if (saveToSyncServer) {
-			var strippedSettings = SettingsOperation.getStrippedSyncableSettings(Settings.current);
+			var strippedSettings = me.getStrippedSyncableSettings(Settings.current);
 			let saveObject = utilsLib.encodeSyncData(strippedSettings);
 			try {
 				polyFillLib.storageSyncSet(saveObject,
@@ -340,7 +354,7 @@ export class SettingsOperation {
 		polyFillLib.storageLocalSet(Settings.current,
 			null,
 			(error: Error) => {
-				Debug.error(`SettingsOperation.saveAllLocal error: ${error.message}`);
+				Debug.error(`SettingsOperation.saveAllLocal error:`, error);
 			});
 	}
 	public static saveOptions() {
@@ -387,18 +401,6 @@ export class SettingsOperation {
 				Debug.error(`SettingsOperation.proxyServerSubscriptions error: ${error.message}`);
 			});
 	}
-	// public static saveProxyRulesSubscriptions() {
-	// 	if (Settings.current.options.syncSettings)
-	// 		// don't save in local when sync enabled
-	// 		return;
-
-	// 	polyFillLib.storageLocalSet({ proxyRulesSubscriptions: Settings.current.proxyRulesSubscriptions },
-	// 		null,
-	// 		(error: Error) => {
-	// 			Debug.error(`SettingsOperation.proxyRulesSubscriptions error: ${error.message}`);
-	// 		});
-	// }
-
 	public static saveDefaultProxyServer() {
 		if (Settings.current.options.syncSettings)
 			// don't save in local when sync enabled
@@ -420,6 +422,10 @@ export class SettingsOperation {
 			(error: Error) => {
 				Debug.error(`SettingsOperation.saveActiveProfile error: ${error.message}`);
 			});
+	}
+	public static saveUpdateInfo(updateInfo: UpdateInfo) {
+		Settings.current.updateInfo = updateInfo;
+		me.saveAllSync();
 	}
 
 	/** Updates the `proxy server` used in the proxy rules for all SmartProfiles*/
@@ -503,7 +509,7 @@ export class SettingsOperation {
 
 			// migrate from old versions
 			settingsCopy.version = backupConfig.version;// resetting version to do a proper migration
-			settingsCopy = Settings.migrateFromOldVersions(settingsCopy);
+			Settings.migrateFromOldVersions(settingsCopy);
 
 			// resetting `settingsCopy` prototype
 			let settingsCopy_PrototypeReset = new SettingsConfig();
@@ -849,3 +855,5 @@ export class SettingsOperation {
 		}
 	}
 }
+
+let me = SettingsOperation;

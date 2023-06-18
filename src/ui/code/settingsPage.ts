@@ -247,7 +247,7 @@ export class settingsPage {
 					"width": "70px",
 					"data": null, orderable: false,
 					"className": "text-nowrap",
-					"defaultContent": "<button class='btn btn-sm btn-success' id='btnServersEdit'>Edit</button> <button class='btn btn-sm btn-danger' id='btnServersRemove'><i class='fas fa-times'></button>",
+					"defaultContent": `<button class='btn btn-sm btn-success' id='btnServersEdit'>${api.i18n.getMessage("settingsEditButton")}</button> <button class='btn btn-sm btn-danger' id='btnServersRemove'><i class='fas fa-times'></button>`,
 					responsivePriority: 2
 				}
 			],
@@ -305,7 +305,7 @@ export class settingsPage {
 					"width": "70px",
 					"data": null,
 					"className": "text-nowrap",
-					"defaultContent": "<button class='btn btn-sm btn-success' id='btnSubscriptionsEdit'>Edit</button> <button class='btn btn-sm btn-danger' id='btnSubscriptionsRemove'><i class='fas fa-times'></button>",
+					"defaultContent": `<button class='btn btn-sm btn-success' id='btnSubscriptionsEdit'>${api.i18n.getMessage("settingsEditButton")}</button> <button class='btn btn-sm btn-danger' id='btnSubscriptionsRemove'><i class='fas fa-times'></button>`,
 					responsivePriority: 2
 				}
 			],
@@ -350,15 +350,15 @@ export class settingsPage {
 
 	private static initializeUi() {
 		if (environment.chrome) {
-			jq("#divAlertChrome").show().remove('d-none');
+			jq("#divAlertChrome").show().removeClass('d-none');
 			jq(".firefox-only").hide();
-			jq(".chrome-only").show().remove('d-none');
+			jq(".chrome-only").show().removeClass('d-none');
 			if (environment.manifestV3) {
-				jq(".chrome-mv3-only").show().remove('d-none');
+				jq(".chrome-mv3-only").show().removeClass('d-none');
 			}
 		} else {
-			jq("#divAlertFirefox").show().remove('d-none');
-			jq(".firefox-only").show().remove('d-none');
+			jq("#divAlertFirefox").show().removeClass('d-none');
+			jq(".firefox-only").show().removeClass('d-none');
 			jq(".chrome-only").hide();
 		}
 		jq("#linkAddonsMarket")
@@ -451,17 +451,21 @@ export class settingsPage {
 
 			divNoServersWarning.hide();
 		} else {
-			divNoServersWarning.show().remove('d-none');
+			divNoServersWarning.show().removeClass('d-none');
 		}
 
 		jq("#spanVersion").text("Version: " + currentSettings.version);
 
-		if (settingsData.updateAvailableText && settingsData.updateInfo) {
-			jq(".menu-update-available").show().remove('d-none')
-				.find("a")
-				.attr("href", settingsData.updateInfo.downloadPage)
+		const updateInfo = currentSettings.updateInfo;
+		if (updateInfo && updateInfo.updateIsAvailable) {
+			let updateAvailableText = api.i18n
+				.getMessage('settingsTabUpdateText')
+				.replace('{0}', updateInfo.versionName);
+
+			jq(".menu-update-available").removeClass('d-none')
+				.attr("href", updateInfo.downloadPage)
 				.find("span")
-				.text(settingsData.updateAvailableText);
+				.text(updateAvailableText);
 		}
 	}
 
@@ -473,7 +477,10 @@ export class settingsPage {
 		if (!serverSubscriptions)
 			serverSubscriptions = settingsPage.readServerSubscriptions();
 
-		let hasSelectedItem = false;
+		let hasSelectedItem =
+			comboBox.val() == ProxyRuleSpecialProxyServer.DefaultGeneral ||
+			comboBox.val() == ProxyRuleSpecialProxyServer.ProfileProxy;
+
 		// adding select options
 		proxyServers.forEach((proxyServer: ProxyServer) => {
 
@@ -544,21 +551,26 @@ export class settingsPage {
 		let serverInputInfo = settingsPage.readServerModel(modal);
 
 		if (serverInputInfo.protocol == "SOCKS5")
-			modal.find("#chkServerProxyDNS-Control").show().remove('d-none');
+			modal.find("#chkServerProxyDNS-Control").show().removeClass('d-none');
 		else
 			modal.find("#chkServerProxyDNS-Control").hide();
 
-		if (serverInputInfo.protocol == "SOCKS4")
+		if (environment.chrome && environment.manifestV3) {
 			modal.find("#chkServerProxy-Authentication").hide();
-		else if (serverInputInfo.protocol == "SOCKS5") {
-			if (environment.chrome) {
-				modal.find("#chkServerProxy-Authentication").hide();
-			}
-			else
-				modal.find("#chkServerProxy-Authentication").show().remove('d-none');
 		}
 		else {
-			modal.find("#chkServerProxy-Authentication").show().remove('d-none');
+			if (serverInputInfo.protocol == "SOCKS4")
+				modal.find("#chkServerProxy-Authentication").hide();
+			else if (serverInputInfo.protocol == "SOCKS5") {
+				if (environment.chrome) {
+					modal.find("#chkServerProxy-Authentication").hide();
+				}
+				else
+					modal.find("#chkServerProxy-Authentication").show().removeClass('d-none');
+			}
+			else {
+				modal.find("#chkServerProxy-Authentication").show().removeClass('d-none');
+			}
 		}
 	}
 
@@ -626,8 +638,13 @@ export class settingsPage {
 		}
 
 		let dontIncludeAuthServers = false;
-		if (environment.chrome)
+		if (environment.chrome) {
 			dontIncludeAuthServers = true;
+
+			modalContainer.find("#cmdRuleType")
+				.find(`option[value=${ProxyRuleType.MatchPatternUrl}],option[value=${ProxyRuleType.RegexUrl}],option[value=${ProxyRuleType.Exact}]`)
+				.remove();
+		}
 
 		if (proxyRule) {
 
@@ -641,12 +658,14 @@ export class settingsPage {
 			modalContainer.find("#chkRuleEnabled").prop('checked', proxyRule.enabled);
 			modalContainer.find("#cmdRuleAction").val(proxyRule.whiteList ? "1" : "0");
 
-			let proxyServerId = null;
+			let proxyServerId = proxyRule.proxyServerId;
 			if (proxyRule.proxy)
 				proxyServerId = proxyRule.proxy.id;
 
-			if (cmdRuleProxyServer.length)
+			if (cmdRuleProxyServer.length) {
+				cmdRuleProxyServer.val(proxyServerId);
 				settingsPage.populateProxyServersToComboBox(cmdRuleProxyServer, proxyServerId, null, null, dontIncludeAuthServers);
+			}
 
 		} else {
 
@@ -708,6 +727,13 @@ export class settingsPage {
 			tabContainer.find("#divRuleGeneratePattern").hide();
 			tabContainer.find("#divRuleUrlRegex").hide();
 			tabContainer.find("#divRuleUrlExact").show();
+		}
+		let whiteList = parseInt(tabContainer.find("#cmdRuleAction").val()) != 0
+		if (whiteList) {
+			tabContainer.find("#divRuleProxyServer").hide();
+		}
+		else {
+			tabContainer.find("#divRuleProxyServer").show();
 		}
 	}
 
@@ -1261,7 +1287,7 @@ export class settingsPage {
 			this.loadProfileProxyServer(pageSmartProfile, [], []);
 
 		if (displayInMenu)
-			profileMenu.show().remove('d-none');
+			profileMenu.show().removeClass('d-none');
 		profileTab.css('display', '');
 
 		return pageSmartProfile;
@@ -1422,7 +1448,7 @@ export class settingsPage {
 				"width": "60px",
 				"data": null,
 				"className": "text-nowrap",
-				"defaultContent": "<button class='btn btn-sm btn-success' id='btnRulesEdit'>Edit</button> <button class='btn btn-sm btn-danger' id='btnRulesRemove'><i class='fas fa-times'></button>",
+				"defaultContent": `<button class='btn btn-sm btn-success' id='btnRulesEdit'>${api.i18n.getMessage("settingsEditButton")}</button> <button class='btn btn-sm btn-danger' id='btnRulesRemove'><i class='fas fa-times'></button>`,
 				responsivePriority: 2
 			}
 		];
@@ -1497,7 +1523,7 @@ export class settingsPage {
 					"width": "100px",
 					"data": null,
 					"className": "text-nowrap",
-					"defaultContent": "<button class='btn btn-sm btn-success' id='btnRuleSubscriptionsEdit'>Edit</button> <button class='btn btn-sm btn-info' id='btnRuleSubscriptionsRefresh'><i class='fas fa-sync'></i></button> <button class='btn btn-sm btn-danger' id='btnRuleSubscriptionsRemove'><i class='fas fa-times'></button>",
+					"defaultContent": `<button class='btn btn-sm btn-success' id='btnRuleSubscriptionsEdit'>${api.i18n.getMessage("settingsEditButton")}</button> <button class='btn btn-sm btn-info' id='btnRuleSubscriptionsRefresh'><i class='fas fa-sync'></i></button> <button class='btn btn-sm btn-danger' id='btnRuleSubscriptionsRemove'><i class='fas fa-times'></button>`,
 					responsivePriority: 2
 				}
 			],
@@ -1521,15 +1547,15 @@ export class settingsPage {
 	private static initializeSmartProfileUi(pageProfile: SettingsPageSmartProfile) {
 		let tabContainer = pageProfile.htmlProfileTab;
 		if (environment.chrome) {
-			tabContainer.find("#divAlertChrome").show().remove('d-none');
+			tabContainer.find("#divAlertChrome").show().removeClass('d-none');
 			tabContainer.find(".firefox-only").hide();
-			tabContainer.find(".chrome-only").show().remove('d-none');
+			tabContainer.find(".chrome-only").show().removeClass('d-none');
 			if (environment.manifestV3) {
-				tabContainer.find(".chrome-mv3-only").show().remove('d-none');
+				tabContainer.find(".chrome-mv3-only").show().removeClass('d-none');
 			}
 		} else {
-			tabContainer.find("#divAlertFirefox").show().remove('d-none');
-			tabContainer.find(".firefox-only").show().remove('d-none');
+			tabContainer.find("#divAlertFirefox").show().removeClass('d-none');
+			tabContainer.find(".firefox-only").show().removeClass('d-none');
 			tabContainer.find(".chrome-only").hide();
 		}
 
@@ -1562,6 +1588,8 @@ export class settingsPage {
 
 		// rules
 		tabContainer.find("#cmdRuleType").change(() => settingsPage.uiEvents.onChangeRuleType(pageProfile));
+
+		tabContainer.find("#cmdRuleAction").change(() => settingsPage.uiEvents.onChangeRuleAction(pageProfile));
 
 		tabContainer.find("#chkRuleGeneratePattern").change(() => settingsPage.uiEvents.onChangeRuleGeneratePattern(pageProfile));
 
@@ -2063,7 +2091,7 @@ export class settingsPage {
 		},
 		onClickIgnoreRequestFailuresForDomains() {
 			let settings = settingsPage.currentSettings;
-			
+
 			let pageSmartProfile = settingsPage.pageSmartProfiles.find(x => x.smartProfile.profileType == SmartProfileType.IgnoreFailureRules);
 			if (pageSmartProfile) {
 				settingsPage.showProfileTab(pageSmartProfile);
@@ -2463,6 +2491,9 @@ export class settingsPage {
 			settingsPage.updateProxyRuleModal(pageProfile.htmlProfileTab);
 		},
 		onChangeRuleType(pageProfile: SettingsPageSmartProfile) {
+			settingsPage.updateProxyRuleModal(pageProfile.htmlProfileTab);
+		},
+		onChangeRuleAction(pageProfile: SettingsPageSmartProfile) {
 			settingsPage.updateProxyRuleModal(pageProfile.htmlProfileTab);
 		},
 		onClickSubmitProxyRule(pageProfile: SettingsPageSmartProfile) {
@@ -3558,7 +3589,7 @@ export class settingsPage {
 		},
 		onClickBackupComplete() {
 
-			let backupSettings = SettingsOperation.getStrippedSyncableSettings(settingsPage.currentSettings);
+			let backupSettings = SettingsOperation.getBackupOfSettings(settingsPage.currentSettings);
 			let data = JSON.stringify(backupSettings);
 			CommonUi.downloadData(data, "SmartProxy-FullBackup.json");
 		},

@@ -1,6 +1,6 @@
 ﻿/*
  * This file is part of SmartProxy <https://github.com/salarcode/SmartProxy>,
- * Copyright (C) 2022 Salar Khalilzadeh <salar2k@gmail.com>
+ * Copyright (C) 2023 Salar Khalilzadeh <salar2k@gmail.com>
  *
  * SmartProxy is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 3 as
@@ -39,6 +39,7 @@ import {
 	CompiledProxyRulesMatchedSource,
 	SmartProfile,
 	PartialThemeDataType,
+	TabProxyStatus,
 } from './definitions';
 import { KeyboardShortcuts } from './KeyboardShortcuts';
 import { ProxyEngineSpecialRequests } from './ProxyEngineSpecialRequests';
@@ -71,10 +72,10 @@ export class Core {
 			Core.setBrowserActionStatus();
 
 			// update the timers
-			subscriptionUpdaterLib.updateServerSubscriptions();
+			subscriptionUpdaterLib.setServerSubscriptionsRefreshTimers();
 			subscriptionUpdaterLib.reloadEmptyServerSubscriptions();
 
-			subscriptionUpdaterLib.updateRulesSubscriptions();
+			subscriptionUpdaterLib.setRulesSubscriptionsRefreshTimers();
 			subscriptionUpdaterLib.reloadEmptyRulesSubscriptions();
 
 			// check for updates, in all browsers
@@ -444,7 +445,7 @@ export class Core {
 				settingsOperationLib.saveAllSync();
 
 				// update the timers
-				subscriptionUpdaterLib.updateServerSubscriptions();
+				subscriptionUpdaterLib.setServerSubscriptionsRefreshTimers();
 
 				// it is possible that active proxy is changed
 				proxyEngineLib.updateBrowsersProxyConfig();
@@ -757,7 +758,7 @@ export class Core {
 			return dataForPopup;
 
 		let activeSmartProfile = settingsActive.activeProfile;
-
+		
 		if (proxyableDomainList.length == 1) {
 			let proxyableDomain = proxyableDomainList[0];
 
@@ -968,7 +969,7 @@ export class Core {
 			}
 
 			if (settingsLib.current.options.displayAppliedProxyOnBadge && !environment.mobile) {
-				if (tabData.proxified) {
+				if (tabData.proxified !== TabProxyStatus.None) {
 					proxyTitle += `\r\n${api.i18n.getMessage('toolbarTooltipEffectiveRule')}  ${tabData.proxyRuleHostName}`;
 				} else {
 					proxyTitle += `\r\n${api.i18n.getMessage('toolbarTooltipEffectiveRuleNone')}`;
@@ -976,7 +977,7 @@ export class Core {
 			}
 
 			if (settingsLib.current.options.displayMatchedRuleOnBadge && !environment.mobile) {
-				if (tabData.proxified && tabData.proxyMatchedRule) {
+				if (tabData.proxified !== TabProxyStatus.None && tabData.proxyMatchedRule) {
 					proxyTitle += `\r\n${api.i18n.getMessage('toolbarTooltipEffectiveRulePattern')}  ${tabData.proxyMatchedRule.ruleText}`;
 				}
 			}

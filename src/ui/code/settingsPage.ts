@@ -670,7 +670,7 @@ export class settingsPage {
 		} else {
 
 			modalContainer.find("#chkRuleGeneratePattern").prop('checked', true);
-			modalContainer.find("#cmdRuleType").val(ProxyRuleType.MatchPatternHost);
+			modalContainer.find("#cmdRuleType").val(ProxyRuleType.DomainSubdomain);
 
 			modalContainer.find("#txtRuleSource").val("");
 			modalContainer.find("#txtRuleMatchPattern").val("");
@@ -767,7 +767,7 @@ export class settingsPage {
 			modalContainer.find("#cmbServerSubscriptionProtocol").val(subscription.proxyProtocol);
 			modalContainer.find("#cmbServerSubscriptionObfuscation").val(subscription.obfuscation);
 			modalContainer.find("#cmbServerSubscriptionFormat").val(subscription.format);
-			modalContainer.find("#cmbServerSubscriptionApplyProxy").val(subscription.applyProxy || SpecialRequestApplyProxyMode.CurrentProxy);
+			modalContainer.find("#cmbServerSubscriptionApplyProxy").val(subscription.applyProxy ?? SpecialRequestApplyProxyMode.CurrentProxy);
 			modalContainer.find("#cmbServerSubscriptionUsername").val(subscription.username);
 			if (subscription.password != null)
 				// from BASE64
@@ -817,7 +817,7 @@ export class settingsPage {
 			modalContainer.find("#chkRulesSubscriptionEnabled").prop('checked', subscription.enabled);
 			modalContainer.find("#cmbRulesSubscriptionObfuscation").val(subscription.obfuscation);
 			modalContainer.find("#cmbRulesSubscriptionFormat").val(subscription.format);
-			modalContainer.find("#cmbRulesSubscriptionApplyProxy").val(subscription.applyProxy || SpecialRequestApplyProxyMode.CurrentProxy);
+			modalContainer.find("#cmbRulesSubscriptionApplyProxy").val(subscription.applyProxy ?? SpecialRequestApplyProxyMode.CurrentProxy);
 			modalContainer.find("#cmbRulesSubscriptionUsername").val(subscription.username);
 			if (subscription.password != null)
 				// from BASE64
@@ -853,7 +853,6 @@ export class settingsPage {
 		// BASE 64 string
 		subscription.password = btoa(modalContainer.find("#cmbRulesSubscriptionPassword").val());
 		subscription.totalCount = 0;
-
 		return subscription;
 	}
 	//#endregion
@@ -1899,7 +1898,7 @@ export class settingsPage {
 		this.refreshRulesSubscriptionsGridAllRows(pageProfile);
 	}
 
-	private static readRulesSubscriptions(pageProfile: SettingsPageSmartProfile): any[] {
+	private static readRulesSubscriptions(pageProfile: SettingsPageSmartProfile): ProxyRulesSubscription[] {
 		return pageProfile.grdRulesSubscriptions.data().toArray();
 	}
 

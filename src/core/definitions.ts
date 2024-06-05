@@ -5,7 +5,7 @@ import { ProfileOperations } from './ProfileOperations';
 
 /*
  * This file is part of SmartProxy <https://github.com/salarcode/SmartProxy>,
- * Copyright (C) 2023 Salar Khalilzadeh <salar2k@gmail.com>
+ * Copyright (C) 2024 Salar Khalilzadeh <salar2k@gmail.com>
  *
  * SmartProxy is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 3 as
@@ -74,6 +74,10 @@ export enum ProxyRuleType {
 	RegexUrl,
 	Exact,
 	DomainSubdomain,
+	DomainExact,
+	DomainAndPath,
+	DomainSubdomainAndPath,
+	SearchUrl
 }
 export enum CompiledProxyRuleType {
 	RegexHost,
@@ -88,8 +92,39 @@ export enum CompiledProxyRuleType {
 	/** Matches domain and path */
 	SearchDomainAndPath,
 	/** Matches domain and its subdomains including path in the end of each */
-	SearchDomainSubdomainAndPath,
+	SearchDomainSubdomainAndPath
 }
+function convertCompiledToProxyRuleType(compiledRule: CompiledProxyRuleType): ProxyRuleType | null {
+	switch (compiledRule) {
+		case CompiledProxyRuleType.RegexHost:
+			return ProxyRuleType.RegexHost;
+
+		case CompiledProxyRuleType.RegexUrl:
+			return ProxyRuleType.RegexUrl;
+
+		case CompiledProxyRuleType.Exact:
+			return ProxyRuleType.Exact;
+
+		case CompiledProxyRuleType.SearchUrl:
+			return ProxyRuleType.SearchUrl;
+
+		case CompiledProxyRuleType.SearchDomain:
+			return ProxyRuleType.DomainExact;
+
+		case CompiledProxyRuleType.SearchDomainSubdomain:
+			return ProxyRuleType.DomainSubdomain;
+
+		case CompiledProxyRuleType.SearchDomainAndPath:
+			return ProxyRuleType.DomainAndPath;
+
+		case CompiledProxyRuleType.SearchDomainSubdomainAndPath:
+			return ProxyRuleType.DomainSubdomainAndPath;
+
+		default:
+			return null;
+	}
+}
+
 export enum CompiledProxyRuleSource {
 	Rules,
 	Subscriptions,
@@ -695,6 +730,10 @@ export class ProxyRule implements Cloneable {
 				return this.ruleRegex;
 
 			case ProxyRuleType.DomainSubdomain:
+			case ProxyRuleType.DomainSubdomainAndPath:
+			case ProxyRuleType.DomainAndPath:
+			case ProxyRuleType.DomainExact:
+			case ProxyRuleType.SearchUrl:
 				return this.ruleSearch;
 
 			case ProxyRuleType.Exact:
@@ -771,7 +810,12 @@ export class ProxyRule implements Cloneable {
 		if (!this.rule || this.ruleType == null)
 			return false;
 
-		if ((!this.ruleSearch || !this.hostName) && this.ruleType == ProxyRuleType.DomainSubdomain) {
+		if ((!this.ruleSearch || !this.hostName) &&
+			(this.ruleType == ProxyRuleType.DomainSubdomain ||
+				this.ruleType == ProxyRuleType.DomainAndPath ||
+				this.ruleType == ProxyRuleType.DomainSubdomainAndPath ||
+				this.ruleType == ProxyRuleType.DomainExact ||
+				this.ruleType == ProxyRuleType.SearchUrl)) {
 			return false;
 		}
 		if (!this.ruleExact && this.ruleType == ProxyRuleType.Exact) {
@@ -818,6 +862,31 @@ export class CompiledProxyRule {
 		return '';
 	}
 }
+
+export class ImportedProxyRule {
+	/** Imported from subscription or UI */
+	public name: string;
+	public regex?: string;
+	public search?: string;
+	public importedRuleType?: CompiledProxyRuleType;
+
+	public getProxyRule(): ProxyRule {
+		let newRule = new ProxyRule();
+		newRule.enabled = true;
+		newRule.hostName = this.name || this.search;
+		newRule.ruleRegex = this.regex;
+		newRule.ruleSearch = this.search;
+		newRule.ruleType =
+			convertCompiledToProxyRuleType(this.importedRuleType) ?? (this.regex ? ProxyRuleType.RegexUrl : ProxyRuleType.DomainSubdomain);
+		return newRule;
+	}
+
+	public getSubscriptionProxyRule(): SubscriptionProxyRule {
+		return this;
+	}
+}
+
+export type SubscriptionProxyRule = ImportedProxyRule;
 
 /** Compiled rules, separated by type and Priority */
 export class CompiledProxyRulesInfo {
@@ -932,7 +1001,7 @@ export class ProxyServerSubscription implements Cloneable {
 		if (source['url'] != null) this.url = source['url'] || '';
 		if (source['enabled'] != null) this.enabled = source['enabled'] == true ? true : false;
 		if (source['proxyProtocol'] != null) this.proxyProtocol = source['proxyProtocol'] || null;
-		this.refreshRate = +source['failoverTimeout'] > 0 ? +source['failoverTimeout'] : 0;
+		this.refreshRate = +source['refreshRate'] > 0 ? +source['refreshRate'] : 0;
 		if (source['obfuscation'] != null) this.obfuscation = source['obfuscation'] || null;
 		this.format = ProxyServerSubscriptionFormat.PlainText;
 		if (source['format'] != null)
@@ -971,34 +1040,26 @@ export class ProxyServerSubscription implements Cloneable {
 	}
 }
 
-export enum ProxyRulesSubscriptionFormat {
+export enum ExternalRulesFormat {
 	AutoProxy,
 	SwitchyOmega,
 }
 
-export enum ProxyRulesSubscriptionRuleType {
-	RegexHost,
-	RegexUrl,
-	/** Url should be included from the start */
-	SearchUrl,
-	/** Domain should be a exact match */
-	SearchDomain,
-	/** Matches domain and path */
-	SearchDomainAndPath,
-	/** Matches domain and its subdomains */
-	SearchDomainSubdomain,
-	/** Matches domain and its subdomains including path in the end of each */
-	SearchDomainSubdomainAndPath,
+export interface IExternalRulesConfig {
+	url: string;
+
+	username: string;
+	password: string;
+
+	// types stored in proxyServerSubscriptionObfuscate
+	obfuscation: string;
+
+	format: ExternalRulesFormat;
+
+	applyProxy: SpecialRequestApplyProxyMode;
 }
 
-export class SubscriptionProxyRule {
-	public name: string;
-	public regex?: string;
-	public search?: string;
-	public importedRuleType?: ProxyRulesSubscriptionRuleType;
-}
-
-export class ProxyRulesSubscription {
+export class ProxyRulesSubscription implements IExternalRulesConfig {
 	constructor() {
 		this.id = Utils.getNewUniqueIdString();
 	}
@@ -1013,7 +1074,7 @@ export class ProxyRulesSubscription {
 	// types stored in proxyServerSubscriptionObfuscate
 	public obfuscation: string;
 
-	public format: ProxyRulesSubscriptionFormat;
+	public format: ExternalRulesFormat;
 
 	// number of rules in the list
 	public totalCount: number = 0;
@@ -1034,9 +1095,9 @@ export class ProxyRulesSubscription {
 		if (source['url'] != null) this.url = source['url'] || '';
 		if (source['enabled'] != null) this.enabled = source['enabled'] == true ? true : false;
 
-		this.refreshRate = +source['failoverTimeout'] > 0 ? +source['failoverTimeout'] : 0;
+		this.refreshRate = +source['refreshRate'] > 0 ? +source['refreshRate'] : 0;
 		if (source['obfuscation'] != null) this.obfuscation = source['obfuscation'] || null;
-		this.format = ProxyRulesSubscriptionFormat.AutoProxy;
+		this.format = ExternalRulesFormat.AutoProxy;
 		if (source['format'] != null)
 			if (+source['format'] in ProxyServerSubscriptionFormat) {
 				this.format = +source['format'];
@@ -1052,7 +1113,7 @@ export class ProxyRulesSubscription {
 			}
 		this.proxyRules = [];
 		this.whitelistRules = [];
-		if (source['proxyRules'] != null && Array.isArray(source['proxyRules'])) 
+		if (source['proxyRules'] != null && Array.isArray(source['proxyRules']))
 			this.proxyRules = source['proxyRules'];
 		if (source['whitelistRules'] != null && Array.isArray(source['whitelistRules']))
 			this.whitelistRules = source['whitelistRules'];
@@ -1067,6 +1128,24 @@ export class ProxyRulesSubscription {
 			return false;
 
 		return true;
+	}
+}
+
+export class ProxyRulesImportFromUI implements IExternalRulesConfig {
+	url: string;
+	username: string;
+	password: string;
+	obfuscation: string;
+	format: ExternalRulesFormat;
+	applyProxy: SpecialRequestApplyProxyMode;
+
+	constructor() {
+		this.url = null;
+		this.obfuscation = null;
+		this.format = ExternalRulesFormat.AutoProxy;
+		this.applyProxy = SpecialRequestApplyProxyMode.CurrentProxy;
+		this.username = null;
+		this.password = null;
 	}
 }
 

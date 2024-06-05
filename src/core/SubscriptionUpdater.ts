@@ -20,7 +20,7 @@ import { ProxyImporter } from "../lib/ProxyImporter";
 import { SettingsOperation } from "./SettingsOperation";
 import { RuleImporter } from "../lib/RuleImporter";
 import { ProxyEngine } from "./ProxyEngine";
-import { ProxyRulesSubscription, ProxyServer, SubscriptionProxyRule, SubscriptionStats } from "./definitions";
+import { ImportedProxyRule, ProxyRulesSubscription, ProxyServer, SubscriptionStats } from "./definitions";
 
 export class SubscriptionUpdater {
 	private static serverSubscriptionTimers: SubscriptionTimerType[] = [{ timerId: null, subscriptionId: null, refreshRate: null }];
@@ -43,19 +43,23 @@ export class SubscriptionUpdater {
 	}
 
 	public static setServerSubscriptionsRefreshTimers() {
-
 		// -------------------------
 		// Proxy Server Subscriptions
 		let serverExistingNames: string[] = [];
 		for (let subscription of Settings.current.proxyServerSubscriptions) {
 			DiagDebug?.trace("updateServerSubscriptions", `enabled:` + subscription.enabled, 'refreshRate:' + subscription.refreshRate);
 
-			if (!subscription.enabled)
-				continue;
+			// if disabled or refresh is not requested
+			if (!subscription.enabled || !(subscription.refreshRate > 0)) {
+				let existingTimerInfo = SubscriptionUpdater.getServerSubscriptionIdTimer(subscription.name);
+				if (existingTimerInfo?.timer) {
+					clearInterval(existingTimerInfo.timer.timerId);
 
-			// refresh is not requested
-			if (!(subscription.refreshRate > 0))
+					// remove from array
+					SubscriptionUpdater.serverSubscriptionTimers.splice(existingTimerInfo.index, 1);
+				}
 				continue;
+			}
 
 			// it should be active, don't remove it
 			serverExistingNames.push(subscription.name);
@@ -182,7 +186,6 @@ export class SubscriptionUpdater {
 	}
 
 	public static setRulesSubscriptionsRefreshTimers() {
-
 		// -------------------------
 		// Proxy Rules Subscriptions
 		let ruleExistingIds: string[] = [];
@@ -191,12 +194,20 @@ export class SubscriptionUpdater {
 				continue;
 
 			for (const subscription of profile.rulesSubscriptions) {
-				if (!subscription.enabled)
-					continue;
 
-				// refresh is not requested
-				if (!(subscription.refreshRate > 0))
+				// if disabled or refresh is not requested
+				if (!subscription.enabled || !(subscription.refreshRate > 0)) {
+					// remove existing timers
+					let existingTimerInfo = SubscriptionUpdater.getRulesSubscriptionIdTimer(subscription.id);
+					if (existingTimerInfo?.timer) {
+						clearInterval(existingTimerInfo.timer.timerId);
+
+						// remove from array
+						SubscriptionUpdater.rulesSubscriptionTimers.splice(existingTimerInfo.index, 1);
+					}
+
 					continue;
+				}
 
 				// it should be active, don't remove it
 				ruleExistingIds.push(subscription.id);
@@ -270,22 +281,22 @@ export class SubscriptionUpdater {
 			subscription.stats = new SubscriptionStats();
 		}
 
-		RuleImporter.readFromServer(subscription,
-			function (response: {
-				success: boolean,
-				message: string,
-				result: {
-					whiteList: SubscriptionProxyRule[],
-					blackList: SubscriptionProxyRule[]
-				}
-			}) {
-				if (!response) return;
+		RuleImporter.readFromServerAndImport(subscription,
+			(importResult: {
+				success: boolean;
+				message: string;
+				rules: {
+					whiteList: ImportedProxyRule[];
+					blackList: ImportedProxyRule[];
+				};
+			}) => {
+				if (!importResult) return;
 
-				if (response.success) {
+				if (importResult.success) {
 
-					subscription.proxyRules = response.result.blackList;
-					subscription.whitelistRules = response.result.whiteList;
-					subscription.totalCount = response.result.blackList.length + response.result.whiteList.length;
+					subscription.proxyRules = importResult.rules.blackList;
+					subscription.whitelistRules = importResult.rules.whiteList;
+					subscription.totalCount = importResult.rules.blackList.length + importResult.rules.whiteList.length;
 
 					SubscriptionStats.updateStats(subscription.stats, true);
 

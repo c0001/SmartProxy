@@ -1,6 +1,6 @@
 /*
  * This file is part of SmartProxy <https://github.com/salarcode/SmartProxy>,
- * Copyright (C) 2020 Salar Khalilzadeh <salar2k@gmail.com>
+ * Copyright (C) 2024 Salar Khalilzadeh <salar2k@gmail.com>
  *
  * SmartProxy is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 3 as
@@ -17,25 +17,34 @@
 import { Utils } from './Utils';
 import { api } from './environment';
 import {
-	ProxyRulesSubscription,
-	ProxyRulesSubscriptionFormat,
-	ProxyRulesSubscriptionRuleType,
+	IExternalRulesConfig,
+	ExternalRulesFormat,
 	SubscriptionProxyRule,
+	ProxyRule,
+	CompiledProxyRuleType,
+	ImportedProxyRule,
 } from '../core/definitions';
 import { ProxyEngineSpecialRequests } from '../core/ProxyEngineSpecialRequests';
 import * as ruleImporterSwitchyScript from './RuleImporterSwitchy';
 
 export const RuleImporter = {
-	readFromServer(subscription: ProxyRulesSubscription, success?: Function, fail?: Function) {
-		if (!subscription || !subscription.url) {
+	readFromServerAndImport(rulesConfig: IExternalRulesConfig, success?: Function, fail?: Function) {
+		if (!rulesConfig || !rulesConfig.url) {
 			if (fail) fail();
 			return;
 		}
 		if (!success) throw 'onSuccess callback is mandatory';
 
 		function ajaxSuccess(response: any) {
-			if (!response) if (fail) fail();
+			if (!response) {
+				if (fail)
+					fail();
+				return;
+			}
+
+			// ----
 			RuleImporter.importRulesBatch(
+				rulesConfig,
 				response,
 				null,
 				false,
@@ -43,9 +52,9 @@ export const RuleImporter = {
 				(importResult: {
 					success: boolean;
 					message: string;
-					result: {
-						whiteList: SubscriptionProxyRule[];
-						blackList: SubscriptionProxyRule[];
+					rules: {
+						whiteList: ImportedProxyRule[];
+						blackList: ImportedProxyRule[];
 					};
 				}) => {
 					if (!importResult.success) {
@@ -57,26 +66,25 @@ export const RuleImporter = {
 				(error: Error) => {
 					if (fail) fail(error);
 				},
-				subscription,
 			);
 		}
 
-		if (subscription.applyProxy !== null)
+		if (rulesConfig.applyProxy !== null)
 			// mark this request as special
-			ProxyEngineSpecialRequests.setSpecialUrl(subscription.url, subscription.applyProxy);
+			ProxyEngineSpecialRequests.setSpecialUrl(rulesConfig.url, rulesConfig.applyProxy);
 
 		let fetchRequest = {
 			method: 'GET',
 			headers: undefined,
 		};
-		if (subscription.username) {
-			let pass = atob(subscription.password);
+		if (rulesConfig.username) {
+			let pass = atob(rulesConfig.password);
 			fetchRequest.headers =
 			{
-				'Authorization': 'Basic ' + btoa(subscription.username + ':' + pass)
+				'Authorization': 'Basic ' + btoa(rulesConfig.username + ':' + pass)
 			};
 		}
-		fetch(subscription.url, fetchRequest)
+		fetch(rulesConfig.url, fetchRequest)
 			.then((response) => response.text())
 			.then((result) => {
 				ajaxSuccess(result);
@@ -86,14 +94,17 @@ export const RuleImporter = {
 			});
 	},
 	importRulesBatch(
+		rulesConfig: IExternalRulesConfig,
 		text: string | ArrayBuffer,
 		file: any,
-		append: boolean,
-		currentRules: any[],
+		noDuplicates: boolean,
+		currentRules: ProxyRule[],
 		success: Function,
-		fail?: Function,
-		options?: ProxyRulesSubscription,
+		fail?: Function
 	) {
+		/**
+		 * TODO: Remove and replace with generic version
+		 */
 		if (!file && !text) {
 			if (fail) fail();
 			return;
@@ -101,7 +112,7 @@ export const RuleImporter = {
 
 		if (text) {
 			try {
-				doImport(text as string, options);
+				doImport(text as string, rulesConfig);
 			} catch (e) {
 				if (fail) fail(e);
 			}
@@ -115,38 +126,38 @@ export const RuleImporter = {
 				let fileText = reader.result;
 
 				try {
-					doImport(fileText as string, options);
+					doImport(fileText as string, rulesConfig);
 				} catch (e) {
 					if (fail) fail(e);
 				}
 			};
 			reader.readAsText(file);
 		}
-		function doImport(text: string, options?: ProxyRulesSubscription) {
-			if (options.obfuscation.toLowerCase() == 'base64') {
+		function doImport(text: string, rulesConfig: IExternalRulesConfig) {
+			if (rulesConfig.obfuscation?.toLowerCase() == 'base64') {
 				// decode base64
 				text = Utils.b64DecodeUnicode(text);
 			}
 
 			let rules: {
-				whiteList: SubscriptionProxyRule[];
-				blackList: SubscriptionProxyRule[];
+				whiteList: ImportedProxyRule[];
+				blackList: ImportedProxyRule[];
 			};
 
-			if (options && options.format == ProxyRulesSubscriptionFormat.AutoProxy) {
+			if (rulesConfig && rulesConfig.format == ExternalRulesFormat.AutoProxy) {
 				if (!externalAppRuleParser.GFWList.detect(text, false)) {
 					if (fail) fail();
 					return;
 				}
 				rules = externalAppRuleParser.GFWList.parse(text);
-			} else if (options && options.format == ProxyRulesSubscriptionFormat.SwitchyOmega) {
+			} else if (rulesConfig && rulesConfig.format == ExternalRulesFormat.SwitchyOmega) {
 				let switchyRules = externalAppRuleParser.Switchy.parseAndCompile(text);
 
 				if (!switchyRules || !switchyRules.compiled) {
 					if (fail) fail();
 					return;
 				}
-				let blackListRules = externalAppRuleParser.Switchy.convertToSmartProxy(switchyRules.compiled);
+				let blackListRules = externalAppRuleParser.Switchy.convertToProxyRule(switchyRules.compiled);
 				rules = {
 					blackList: blackListRules,
 					whiteList: [],
@@ -156,9 +167,61 @@ export const RuleImporter = {
 				return;
 			}
 
-			if (append) {
-				if (!currentRules) currentRules = [];
-				// TODO:
+			// ----
+			if (noDuplicates) {
+				if (!currentRules)
+					currentRules = [];
+				rules.blackList = rules.blackList || [];
+				rules.whiteList = rules.whiteList || [];
+
+				function deduplicateRules(importedRules: ImportedProxyRule[], shouldBeWhiteList: boolean = false): ImportedProxyRule[] {
+					// make a copy
+					let uniqueRuleList: ImportedProxyRule[] = [];
+
+					for (let importedRule of importedRules) {
+						let convertedRule = importedRule.getProxyRule();
+
+						let ruleExists = currentRules.some((rule) => 
+							// NOTE: the comparison is limited to these properties because `getProxyRule` only fills these
+							rule.ruleType == convertedRule.ruleType &&
+								rule.ruleSearch == convertedRule.ruleSearch &&
+								rule.ruleRegex == convertedRule.ruleRegex &&
+								(!shouldBeWhiteList || (shouldBeWhiteList && rule.whiteList))
+						);
+						if (ruleExists)
+							continue;
+
+						// append imported rule
+						uniqueRuleList.push(importedRule);
+					}
+
+					return uniqueRuleList;
+				}
+
+				let parsedRulesCount = rules.blackList.length + rules.whiteList.length;
+
+				// ----
+				rules.blackList = deduplicateRules(rules.blackList);
+				rules.whiteList = deduplicateRules(rules.whiteList, true);
+
+				// ----
+				let finalRulesCount = rules.blackList.length + rules.whiteList.length;
+
+				// Total ${appendedRuleCount} out of ${parsedRuleList.length} rules are appended.<br>Don't forget to save the changes.
+				let message = api.i18n
+					.getMessage('importerImportSuccess')
+					.replace('{0}', finalRulesCount.toString())
+					.replace('{1}', parsedRulesCount.toString());
+
+				if (success) {
+					// not need for any check, return straight away
+					success({
+						success: true,
+						message: message,
+						rules: rules,
+					});
+				}
+
 			} else {
 				// Total of {0} proxy rules and {1} white listed rules are returned.<br>Don't forget to save the changes.
 				let message = api.i18n
@@ -171,7 +234,7 @@ export const RuleImporter = {
 					success({
 						success: true,
 						message: message,
-						result: rules,
+						rules: rules,
 					});
 				}
 			}
@@ -201,7 +264,7 @@ export const RuleImporter = {
 				let importedRuleList = [];
 
 				for (let parsedRule of parsedRuleList) {
-					let convertResult = RuleImporter.convertAutoProxyRule(
+					let convertResult = externalAppRuleParser.AutoProxy.convertAutoProxyRule(
 						parsedRule.condition.pattern,
 						parsedRule.condition.conditionType,
 					);
@@ -270,122 +333,7 @@ export const RuleImporter = {
 			}
 		};
 		reader.readAsText(file);
-	},
-	convertAutoProxyRule(cleanCondition: any, conditionType: any) {
-		let source = '';
-		let pattern = '';
-
-		switch (conditionType) {
-			case 'KeywordCondition':
-				// no (*) character
-
-				// NOTE: keyword type is supported as domain name
-				// it also works for https as well as http
-
-				if (cleanCondition[0] === '.') {
-					cleanCondition = cleanCondition.substring(1);
-				}
-				source = cleanCondition;
-
-				if (cleanCondition.endsWith('/'))
-					// no extra slash
-					source = cleanCondition.substring(0, cleanCondition.length - 2);
-
-				pattern = `*://*.${source}/*`;
-				break;
-
-			case 'HostWildcardCondition':
-				if (cleanCondition[0] === '.') {
-					cleanCondition = cleanCondition.substring(1);
-				}
-				// remove (*) chars
-				cleanCondition = cleanCondition.replace(/\*/g, '');
-
-				// remove (.) duplicates
-				cleanCondition = cleanCondition.replace(/([.])\1+/g, '.');
-
-				if (cleanCondition[0] === '.') {
-					cleanCondition = cleanCondition.substring(1);
-				}
-
-				// source
-				source = cleanCondition;
-
-				if (cleanCondition.endsWith('/'))
-					// no extra slash
-					source = cleanCondition.substring(0, cleanCondition.length - 2);
-
-				pattern = `*://*.${source}/*`;
-				break;
-
-			case 'UrlWildcardCondition':
-				// very restricted support
-				if (cleanCondition[0] === '*') {
-					// no problem
-					cleanCondition = cleanCondition.substring(1);
-				}
-				if (cleanCondition[0] === '.') {
-					cleanCondition = cleanCondition.substring(1);
-				}
-
-				if (cleanCondition.indexOf('*') !== -1) {
-					let cleanConditionRemMiddle = cleanCondition;
-
-					if (cleanConditionRemMiddle.indexOf('://*.') !== -1) {
-						cleanConditionRemMiddle = cleanConditionRemMiddle.replace('//*.', '://');
-					}
-
-					if (cleanConditionRemMiddle.endsWith('*')) {
-						cleanCondition = cleanCondition.substring(0, cleanCondition.length - 2);
-						cleanConditionRemMiddle = cleanConditionRemMiddle.substring(0, cleanCondition.length - 2);
-					}
-
-					if (cleanConditionRemMiddle.indexOf('*') !== -1) {
-						// (/*/) is supported, lets remove them and check again for other rules)
-						cleanConditionRemMiddle = cleanCondition.replace(/\/\*\//g, '/');
-
-						if (cleanConditionRemMiddle.indexOf('*') !== -1) {
-							// still there is some left
-							// * in middle is not supported
-
-							return {
-								success: false,
-							};
-						}
-					}
-				}
-
-				// source
-				source = cleanCondition;
-
-				if (cleanCondition.endsWith('/'))
-					// no extra slash
-					source = cleanCondition.substring(0, cleanCondition.length - 2);
-
-				if (source.indexOf('://') !== -1) {
-					pattern = `${source}/*`;
-				} else {
-					pattern = `*://*.${source}/*`;
-				}
-
-				break;
-
-			case 'UrlRegexCondition':
-				// not supported
-				return {
-					success: false,
-				};
-		}
-
-		return {
-			success: true,
-			source: source,
-			pattern: pattern,
-			toString() {
-				return `[${source} , ${pattern}]`;
-			},
-		};
-	},
+	}
 };
 
 const externalAppRuleParser = {
@@ -505,6 +453,122 @@ const externalAppRuleParser = {
 			}
 			return exclusive_rules.concat(normal_rules);
 		},
+		convertAutoProxyRule(cleanCondition: any, conditionType: any) {
+			/** Converts AutoProxy rule to json rules */
+			let source = '';
+			let pattern = '';
+
+			switch (conditionType) {
+				case 'KeywordCondition':
+					// no (*) character
+
+					// NOTE: keyword type is supported as domain name
+					// it also works for https as well as http
+
+					if (cleanCondition[0] === '.') {
+						cleanCondition = cleanCondition.substring(1);
+					}
+					source = cleanCondition;
+
+					if (cleanCondition.endsWith('/'))
+						// no extra slash
+						source = cleanCondition.substring(0, cleanCondition.length - 2);
+
+					pattern = `*://*.${source}/*`;
+					break;
+
+				case 'HostWildcardCondition':
+					if (cleanCondition[0] === '.') {
+						cleanCondition = cleanCondition.substring(1);
+					}
+					// remove (*) chars
+					cleanCondition = cleanCondition.replace(/\*/g, '');
+
+					// remove (.) duplicates
+					cleanCondition = cleanCondition.replace(/([.])\1+/g, '.');
+
+					if (cleanCondition[0] === '.') {
+						cleanCondition = cleanCondition.substring(1);
+					}
+
+					// source
+					source = cleanCondition;
+
+					if (cleanCondition.endsWith('/'))
+						// no extra slash
+						source = cleanCondition.substring(0, cleanCondition.length - 2);
+
+					pattern = `*://*.${source}/*`;
+					break;
+
+				case 'UrlWildcardCondition':
+					// very restricted support
+					if (cleanCondition[0] === '*') {
+						// no problem
+						cleanCondition = cleanCondition.substring(1);
+					}
+					if (cleanCondition[0] === '.') {
+						cleanCondition = cleanCondition.substring(1);
+					}
+
+					if (cleanCondition.indexOf('*') !== -1) {
+						let cleanConditionRemMiddle = cleanCondition;
+
+						if (cleanConditionRemMiddle.indexOf('://*.') !== -1) {
+							cleanConditionRemMiddle = cleanConditionRemMiddle.replace('//*.', '://');
+						}
+
+						if (cleanConditionRemMiddle.endsWith('*')) {
+							cleanCondition = cleanCondition.substring(0, cleanCondition.length - 2);
+							cleanConditionRemMiddle = cleanConditionRemMiddle.substring(0, cleanCondition.length - 2);
+						}
+
+						if (cleanConditionRemMiddle.indexOf('*') !== -1) {
+							// (/*/) is supported, lets remove them and check again for other rules)
+							cleanConditionRemMiddle = cleanCondition.replace(/\/\*\//g, '/');
+
+							if (cleanConditionRemMiddle.indexOf('*') !== -1) {
+								// still there is some left
+								// * in middle is not supported
+
+								return {
+									success: false,
+								};
+							}
+						}
+					}
+
+					// source
+					source = cleanCondition;
+
+					if (cleanCondition.endsWith('/'))
+						// no extra slash
+						source = cleanCondition.substring(0, cleanCondition.length - 2);
+
+					if (source.indexOf('://') !== -1) {
+						pattern = `${source}/*`;
+					} else {
+						pattern = `*://*.${source}/*`;
+					}
+
+					break;
+
+				case 'UrlRegexCondition':
+					// not supported
+					return {
+						success: false,
+					};
+			}
+
+			return {
+				success: true,
+				source: source,
+				pattern: pattern,
+				toString() {
+					return `[${source} , ${pattern}]`;
+				},
+			};
+		}
 	},
 	GFWList: {
 		// -----------------------------------------------
@@ -741,11 +805,13 @@ const externalAppRuleParser = {
 			if (line.startsWith('/') && line.endsWith('/')) {
 				line = line.substring(1, line.length - 1);
 				// this is a regex expression, doesn't need processing
-				return {
-					regex: line,
-					name: 'Regex-' + line.replace(/[\d\\d]*\W*/g, '') /** keeping only characters */,
-					importedRuleType: ProxyRulesSubscriptionRuleType.RegexUrl,
-				};
+
+				let rule = new ImportedProxyRule();
+				rule.regex = line;
+				rule.name = 'Regex-' + line.replace(/[\d\\d]*\W*/g, '') /** keeping only characters */;
+				rule.importedRuleType = CompiledProxyRuleType.RegexUrl;
+
+				return rule;
 			}
 
 			let hasSpecialChars = line.includes('*') || line.includes('(');
@@ -762,17 +828,17 @@ const externalAppRuleParser = {
 				if (hasSpecialChars) {
 					rectifyRegexChars();
 
-					return {
-						regex: `^(?:https?|ftps?|wss?):\\/\\/(?:.+\\.)?${line}(?:[?#\\\/].*)?$`,
-						name: line,
-						importedRuleType: ProxyRulesSubscriptionRuleType.RegexUrl,
-					};
+					let rule = new ImportedProxyRule();
+					rule.regex = `^(?:https?|ftps?|wss?):\\/\\/(?:.+\\.)?${line}(?:[?#\\\/].*)?$`;
+					rule.name = line;
+					rule.importedRuleType = CompiledProxyRuleType.RegexUrl;
+					return rule;
 				} else {
-					return {
-						search: line,
-						name: line,
-						importedRuleType: ProxyRulesSubscriptionRuleType.SearchDomainSubdomain,
-					};
+					let rule = new ImportedProxyRule();
+					rule.search = line;
+					rule.name = line;
+					rule.importedRuleType = CompiledProxyRuleType.SearchDomainSubdomain;
+					return rule;
 				}
 			}
 			if (line.startsWith('|')) {
@@ -781,61 +847,61 @@ const externalAppRuleParser = {
 				if (hasSpecialChars) {
 					rectifyRegexChars();
 
-					return {
-						regex: `^${line}.*`,
-						name: line,
-						importedRuleType: ProxyRulesSubscriptionRuleType.RegexUrl,
-					};
+					let rule = new ImportedProxyRule();
+					rule.regex = `^${line}.*`;
+					rule.name = line;
+					rule.importedRuleType = CompiledProxyRuleType.RegexUrl;
+					return rule;
 				} else {
-					return {
-						search: line,
-						name: line,
-						importedRuleType: ProxyRulesSubscriptionRuleType.SearchUrl,
-					};
+					let rule = new ImportedProxyRule();
+					rule.search = line;
+					rule.name = line;
+					rule.importedRuleType = CompiledProxyRuleType.SearchUrl;
+					return rule;
 				}
 			}
 			if (line.endsWith('|')) {
 				line = line.substring(0, line.length - 1);
 				rectifyRegexChars();
 
-				return {
-					regex: `.*${line}$`,
-					name: line,
-					importedRuleType: ProxyRulesSubscriptionRuleType.RegexUrl,
-				};
+				let rule = new ImportedProxyRule();
+				rule.regex = `.*${line}$`;
+				rule.name = line;
+				rule.importedRuleType = CompiledProxyRuleType.RegexUrl;
+				return rule;
 			}
 			if (line.startsWith('.')) {
 				line = line.substring(1);
 				if (hasSpecialChars) {
 					rectifyRegexChars();
 
-					return {
-						regex: `:\/\/(?:.+\\.)?${line}(?:[?#\\\/].*)?$`,
-						name: line,
-						importedRuleType: ProxyRulesSubscriptionRuleType.RegexUrl,
-					};
+					let rule = new ImportedProxyRule();
+					rule.regex = `:\/\/(?:.+\\.)?${line}(?:[?#\\\/].*)?$`,
+						rule.name = line;
+					rule.importedRuleType = CompiledProxyRuleType.RegexUrl;
+					return rule;
 				} else {
-					return {
-						search: line,
-						name: line,
-						importedRuleType: ProxyRulesSubscriptionRuleType.SearchDomainSubdomainAndPath,
-					};
+					let rule = new ImportedProxyRule();
+					rule.search = line;
+					rule.name = line;
+					rule.importedRuleType = CompiledProxyRuleType.SearchDomainSubdomainAndPath;
+					return rule;
 				}
 			} else {
 				if (hasSpecialChars) {
 					rectifyRegexChars();
 
-					return {
-						regex: `.*${line}(?:[.?#\\\/].*)?$`,
-						name: line,
-						importedRuleType: ProxyRulesSubscriptionRuleType.RegexUrl,
-					};
+					let rule = new ImportedProxyRule();
+					rule.regex = `.*${line}(?:[.?#\\\/].*)?$`;
+					rule.name = line;
+					rule.importedRuleType = CompiledProxyRuleType.RegexUrl;
+					return rule;
 				} else {
-					return {
-						search: line,
-						name: line,
-						importedRuleType: ProxyRulesSubscriptionRuleType.SearchDomainAndPath,
-					};
+					let rule = new ImportedProxyRule();
+					rule.search = line;
+					rule.name = line;
+					rule.importedRuleType = CompiledProxyRuleType.SearchDomainAndPath;
+					return rule;
 				}
 			}
 		},
@@ -860,7 +926,7 @@ const externalAppRuleParser = {
 			});
 			return compiledRules;
 		},
-		convertToSmartProxy(switchyCompiled: any[]): SubscriptionProxyRule[] {
+		convertToSubscriptionProxyRule(switchyCompiled: any[]): SubscriptionProxyRule[] {
 			if (!switchyCompiled || !switchyCompiled.length) return [];
 
 			let result: SubscriptionProxyRule[] = [];
@@ -879,18 +945,52 @@ const externalAppRuleParser = {
 				}
 
 				if (type == 'host') {
-					result.push({
-						name: compiled.source,
-						regex: regexSource,
-						importedRuleType: ProxyRulesSubscriptionRuleType.RegexHost,
-					});
+					let rule = new ImportedProxyRule();
+					rule.name = compiled.source;
+					rule.regex = regexSource;
+					rule.importedRuleType = CompiledProxyRuleType.RegexHost;
+					result.push(rule);
 				} else if (type == 'url') {
-					result.push({
-						name: compiled.source,
-						regex: regexSource,
-						importedRuleType: ProxyRulesSubscriptionRuleType.RegexUrl,
-					});
+					let rule = new ImportedProxyRule();
+					rule.name = compiled.source;
+					rule.regex = regexSource;
+					rule.importedRuleType = CompiledProxyRuleType.RegexUrl;
+					result.push(rule);
 				}
+			}
+
+			return result;
+		},
+		convertToProxyRule(switchyCompiled: any[]): ImportedProxyRule[] {
+			if (!switchyCompiled || !switchyCompiled.length) return [];
+
+			let result: ImportedProxyRule[] = [];
+
+			for (const compiled of switchyCompiled) {
+				// no more or less than one args
+				if (!compiled.args || compiled.args.length != 1) continue;
+				let type = compiled.args[0];
+
+				let regexSource: string;
+				if (compiled.expression instanceof RegExp) {
+					regexSource = compiled.expression.source;
+				}
+				else {
+					regexSource = compiled.expression;
+				}
+
+				let newRule = new ImportedProxyRule();
+				newRule.name = compiled.source;
+				newRule.regex = regexSource;
+				newRule.search = null;
+
+				if (type == 'host') {
+					newRule.importedRuleType = CompiledProxyRuleType.RegexHost;
+
+				} else if (type == 'url') {
+					newRule.importedRuleType = CompiledProxyRuleType.RegexUrl;
+				}
+				result.push(newRule);
 			}
 
 			return result;

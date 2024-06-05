@@ -21,7 +21,7 @@ import { environment, api } from "../../lib/environment";
 import { Utils } from "../../lib/Utils";
 import { ProxyImporter } from "../../lib/ProxyImporter";
 import { RuleImporter } from "../../lib/RuleImporter";
-import { SettingsConfig, CommandMessages, SettingsPageInternalDataType, proxyServerProtocols, proxyServerSubscriptionObfuscate, ProxyServer, ProxyRule, ProxyRuleType, ProxyServerSubscription, GeneralOptions, ResultHolder, proxyServerSubscriptionFormat, SpecialRequestApplyProxyMode, specialRequestApplyProxyModeKeys, ProxyRulesSubscription, SubscriptionProxyRule, SmartProfile, SettingsPageSmartProfile, SmartProfileType, getSmartProfileTypeIcon, ProxyRuleSpecialProxyServer, getUserSmartProfileTypeConfig, themesCustomType, ThemeType, getSmartProfileTypeConfig, SubscriptionStats, getSmartProfileTypeName } from "../../core/definitions";
+import { SettingsConfig, CommandMessages, SettingsPageInternalDataType, proxyServerProtocols, proxyServerSubscriptionObfuscate, ProxyServer, ProxyRule, ProxyRuleType, ProxyServerSubscription, GeneralOptions, ResultHolder, proxyServerSubscriptionFormat, SpecialRequestApplyProxyMode, specialRequestApplyProxyModeKeys, ProxyRulesSubscription, SmartProfile, SettingsPageSmartProfile, SmartProfileType, getSmartProfileTypeIcon, ProxyRuleSpecialProxyServer, getUserSmartProfileTypeConfig, themesCustomType, ThemeType, getSmartProfileTypeConfig, SubscriptionStats, getSmartProfileTypeName, ProxyRulesImportFromUI, ImportedProxyRule, ExternalRulesFormat } from "../../core/definitions";
 import { Debug } from "../../lib/Debug";
 import { ProfileOperations } from "../../core/ProfileOperations";
 import { SettingsOperation } from "../../core/SettingsOperation";
@@ -51,6 +51,7 @@ export class settingsPage {
 
 	public static initialize() {
 		settingsPage.registerMessageReader();
+		CommonUi.onDocumentReady(this.initializeAboutTab);
 		CommonUi.onDocumentReady(this.localizeUi);
 		CommonUi.onDocumentReady(this.bindEvents);
 		CommonUi.onDocumentReady(this.initializeGrids);
@@ -163,6 +164,8 @@ export class settingsPage {
 
 		jq("#btnAddProxyServer").click(settingsPage.uiEvents.onClickAddProxyServer);
 
+		jq("#btnRemoveMultipleProxyServer").click(settingsPage.uiEvents.onClickRemoveMultipleProxyServer);
+
 		jq("#cmdServerProtocol").on("change", settingsPage.uiEvents.onChangeServerProtocol);
 
 		jq("#btnSubmitProxyServer").click(settingsPage.uiEvents.onClickSubmitProxyServer);
@@ -187,6 +190,8 @@ export class settingsPage {
 		// proxy server subscriptions
 		jq("#btnAddServerSubscription").click(settingsPage.uiEvents.onClickAddServerSubscription);
 
+		jq("#btnRemoveMultipleServerSubscription").click(settingsPage.uiEvents.onClickRemoveMultipleServerSubscription);
+
 		jq("#btnSaveServerSubscription").click(settingsPage.uiEvents.onClickSaveServerSubscription);
 
 		jq("#btnTestServerSubscription").click(settingsPage.uiEvents.onClickTestServerSubscription);
@@ -208,7 +213,7 @@ export class settingsPage {
 		settingsPage.grdServers = jq("#grdServers").DataTable({
 			"dom": dataTableCustomDom,
 			paging: true,
-			select: true,
+			select: { style: "os" },
 			scrollY: 460,
 			scrollCollapse: true,
 			responsive: true,
@@ -260,12 +265,15 @@ export class settingsPage {
 					settingsPage.refreshServersGridRowElement(rowChild[0]);
 			}
 		);
+		settingsPage.grdServers.on("select deselect", () => {
+			settingsPage.uiEvents.onRowSelectionChanged(settingsPage.grdServers, jq("#btnRemoveMultipleProxyServer"));
+		});
 		settingsPage.grdServers.draw();
 
 		settingsPage.grdServerSubscriptions = jq("#grdServerSubscriptions").DataTable({
 			"dom": dataTableCustomDom,
 			paging: true,
-			select: true,
+			select: { style: "os" },
 			scrollY: 460,
 			scrollCollapse: true,
 			responsive: true,
@@ -317,6 +325,9 @@ export class settingsPage {
 					settingsPage.refreshServerSubscriptionsGridRowElement(rowChild[0]);
 			}
 		);
+		settingsPage.grdServerSubscriptions.on("select deselect", () => {
+			settingsPage.uiEvents.onRowSelectionChanged(settingsPage.grdServerSubscriptions, jq("#btnRemoveMultipleServerSubscription"));
+		});
 		settingsPage.grdServerSubscriptions.draw();
 
 		if (settingsPage.currentSettings) {
@@ -330,7 +341,6 @@ export class settingsPage {
 			settingsPage.loadServersGrid([]);
 			settingsPage.loadServerSubscriptionsGrid([]);
 		}
-
 		jq(`.nav-link[href='#tab-servers'],
 			.nav-link[href='#tab-server-subscriptions']`).on('shown.bs.tab', (e: any) => {
 
@@ -361,10 +371,6 @@ export class settingsPage {
 			jq(".firefox-only").show().removeClass('d-none');
 			jq(".chrome-only").hide();
 		}
-		jq("#linkAddonsMarket")
-			.text(environment.browserConfig.marketName)
-			.attr("href", environment.browserConfig.marketUrl || "#");
-
 
 		// -- ServerSubscription --------
 		// applying the default values
@@ -656,7 +662,7 @@ export class settingsPage {
 			modalContainer.find("#txtRuleUrlRegex").val(proxyRule.ruleRegex);
 			modalContainer.find("#txtRuleUrlExact").val(proxyRule.ruleExact);
 			modalContainer.find("#chkRuleEnabled").prop('checked', proxyRule.enabled);
-			modalContainer.find("#cmdRuleAction").val(proxyRule.whiteList ? "1" : "0");
+			cmdRuleAction.val(proxyRule.whiteList ? "1" : "0");
 
 			let proxyServerId = proxyRule.proxyServerId;
 			if (proxyRule.proxy)
@@ -716,7 +722,11 @@ export class settingsPage {
 			tabContainer.find("#divRuleGeneratePattern").hide();
 			tabContainer.find("#divRuleUrlRegex").show();
 			tabContainer.find("#divRuleUrlExact").hide();
-		} else if (ruleType == ProxyRuleType.DomainSubdomain) {
+		} else if (ruleType == ProxyRuleType.DomainSubdomain ||
+			ruleType == ProxyRuleType.DomainExact ||
+			ruleType == ProxyRuleType.DomainAndPath ||
+			ruleType == ProxyRuleType.DomainSubdomainAndPath ||
+			ruleType == ProxyRuleType.SearchUrl) {
 			tabContainer.find("#divRuleMatchPattern").hide();
 			tabContainer.find("#divRuleGeneratePattern").hide();
 			tabContainer.find("#divRuleUrlRegex").hide();
@@ -855,6 +865,56 @@ export class settingsPage {
 		subscription.totalCount = 0;
 		return subscription;
 	}
+
+	private static enableGridMultipleDelete(button: any, enable: boolean) {
+		if (enable)
+			jq(button).removeAttr("disabled");
+		else
+			jq(button).attr("disabled", true);
+	}
+	//#endregion
+
+	//#region About tab functions
+	private static initializeAboutTab() {
+
+		let placeHolder = jq("#settingAboutPlaceHolder");
+		if (placeHolder.data('loaded'))
+			return;
+
+
+		function fetchSettingAbout(useFallback: boolean = false, languageCode?: string) {
+			let path = `${languageCode || api.i18n.getMessage('languageCode')}/settings-about.html`;
+			let url = PolyFill.extensionGetURL(`_locales/${path}`);
+
+			fetch(url)
+				.then((response) => response.text())
+				.then((htmlText) => {
+					loadSettingAbout(htmlText);
+				})
+				.catch((error) => {
+					if (useFallback) {
+						// falling back to EN
+						fetchSettingAbout(false, 'en');
+					}
+					else {
+						loadSettingAbout('Failed to load about...!');
+					}
+					Debug.warn('Failed to load ' + path, error);
+				});
+		}
+
+		function loadSettingAbout(htmlText) {
+			placeHolder.html(htmlText);
+			placeHolder.data('loaded', true);
+
+			// update the links and label
+			jq("#linkAddonsMarket")
+				.text(environment.browserConfig.marketName)
+				.attr("href", environment.browserConfig.marketUrl || "#");
+		}
+
+		fetchSettingAbout(true);
+	}
 	//#endregion
 
 	//#region General tab functions --------------
@@ -989,7 +1049,7 @@ export class settingsPage {
 		this.populateProxyServersToComboBox(cmbActiveProxyServer, defaultProxyServerId, proxyServers, serverSubscriptions);
 	}
 
-	private static readServers(): any[] {
+	private static readServers(): ProxyServer[] {
 		return this.grdServers.data().toArray();
 	}
 
@@ -1458,7 +1518,7 @@ export class settingsPage {
 		let grdRules = tabContainer.find("#grdRules").DataTable({
 			"dom": dataTableCustomDom,
 			paging: true,
-			select: true,
+			select: { style: "os" },
 			scrollY: 460,
 			scrollCollapse: true,
 			responsive: true,
@@ -1474,6 +1534,9 @@ export class settingsPage {
 					settingsPage.refreshRulesGridRowElement(pageProfile, rowChild[0]);
 			}
 		);
+		grdRules.on("select deselect", () => {
+			this.uiEvents.onRowSelectionChanged(pageProfile.grdRules, tabContainer.find("#btnRemoveMultipleProxyRule"));
+		});
 		grdRules.draw();
 		new jq.fn.dataTable.Responsive(grdRules);
 		jq.fn.dataTable.select.init(grdRules);
@@ -1482,7 +1545,7 @@ export class settingsPage {
 		let grdRulesSubscriptions = tabContainer.find("#grdRulesSubscriptions").DataTable({
 			"dom": dataTableCustomDom,
 			paging: true,
-			select: true,
+			select: { style: "os" },
 			scrollY: 460,
 			scrollCollapse: true,
 			responsive: true,
@@ -1534,9 +1597,14 @@ export class settingsPage {
 					settingsPage.refreshRulesSubscriptionsGridRowElement(pageProfile, rowChild[0]);
 			}
 		);
+		grdRulesSubscriptions.on("select deselect", () => {
+			this.uiEvents.onRowSelectionChanged(pageProfile.grdRulesSubscriptions, tabContainer.find("#btnRemoveMultipleRulesSubscription"));
+		});
 		grdRulesSubscriptions.draw();
-		//new jq.fn.dataTable.Responsive(grdRulesSubscriptions);
-		//jq.fn.dataTable.select.init(grdRulesSubscriptions);
+		if (tabContainer.find("#grdRulesSubscriptions").length) {
+			//new jq.fn.dataTable.Responsive(grdRulesSubscriptions);
+			jq.fn.dataTable.select.init(grdRulesSubscriptions);
+		}
 
 		// -----
 		pageProfile.grdRules = grdRules;
@@ -1594,13 +1662,15 @@ export class settingsPage {
 
 		tabContainer.find("#btnSubmitRule").click(() => settingsPage.uiEvents.onClickSubmitProxyRule(pageProfile));
 
-		tabContainer.find("#btnImportRulesOpen").click(() => settingsPage.uiEvents.onClickImportRulesOpenDialog(pageProfile));
-
 		tabContainer.find("#btnAddProxyRule").click(() => settingsPage.uiEvents.onClickAddProxyRule(pageProfile));
+
+		tabContainer.find("#btnImportRulesOpen").click(() => settingsPage.uiEvents.onClickImportRulesOpenDialog(pageProfile));
 
 		tabContainer.find("#btnImportRules").click(() => settingsPage.uiEvents.onClickImportRules(pageProfile));
 
-		tabContainer.find("#btnAddProxyMultipleRule").click(() => settingsPage.uiEvents.onClickAddProxyMultipleRule(pageProfile));
+		tabContainer.find("#btnAddMultipleProxyRule").click(() => settingsPage.uiEvents.onClickAddMultipleProxyRule(pageProfile));
+
+		tabContainer.find("#btnRemoveMultipleProxyRule").click(() => settingsPage.uiEvents.onClickRemoveMultipleProxyRule(pageProfile));
 
 		tabContainer.find("#btnSubmitMultipleRule").click(() => settingsPage.uiEvents.onClickSubmitMultipleRule(pageProfile));
 
@@ -1608,6 +1678,8 @@ export class settingsPage {
 
 		// proxy rules subscriptions
 		tabContainer.find("#btnAddRulesSubscription").click(() => settingsPage.uiEvents.onClickAddRulesSubscription(pageProfile));
+
+		tabContainer.find("#btnRemoveMultipleRulesSubscription").click(() => settingsPage.uiEvents.onClickRemoveMultipleRulesSubscription(pageProfile));
 
 		tabContainer.find("#btnSaveRulesSubscriptions").click(() => settingsPage.uiEvents.onClickSaveRulesSubscription(pageProfile));
 
@@ -1902,7 +1974,7 @@ export class settingsPage {
 		return pageProfile.grdRulesSubscriptions.data().toArray();
 	}
 
-	private static readSelectedRulesSubscription(pageProfile: SettingsPageSmartProfile, e?: any): any {
+	private static readSelectedRulesSubscription(pageProfile: SettingsPageSmartProfile, e?: any): ProxyRulesSubscription {
 		let dataItem;
 
 		if (e && e.target) {
@@ -1936,7 +2008,7 @@ export class settingsPage {
 		let currentRow = pageProfile.grdRulesSubscriptions.row('.selected');
 		if (currentRow && currentRow.data())
 			// displaying the possible data change
-			settingsPage.refreshRulesSubscriptionsGridRow(currentRow, true);
+			settingsPage.refreshRulesSubscriptionsGridRow(pageProfile, currentRow, true);
 		else {
 			pageProfile.grdRulesSubscriptions.rows().invalidate();
 			settingsPage.refreshRulesSubscriptionsGridAllRows(pageProfile);
@@ -1950,7 +2022,7 @@ export class settingsPage {
 		rowElement.find("#btnRuleSubscriptionsRefresh").on("click", (e: any) => settingsPage.uiEvents.onRulesSubscriptionRefreshClick(pageProfile, e));
 		rowElement.find("#btnRuleSubscriptionsViewStats").on("click", (e: any) => settingsPage.uiEvents.onRulesSubscriptionViewStatsClick(pageProfile, e));
 	}
-	private static refreshRulesSubscriptionsGridRow(pageProfile: SettingsPageSmartProfile, row: any, invalidate?: any) {
+	private static refreshRulesSubscriptionsGridRow(pageProfile: SettingsPageSmartProfile, row: any, invalidate: boolean = false) {
 		if (!row)
 			return;
 		if (invalidate)
@@ -2157,6 +2229,12 @@ export class settingsPage {
 				jq("#divThemesDarkCustom").addClass('d-none');
 			}
 		},
+		onRowSelectionChanged(datatable: any, button: any) {
+			let len = datatable.rows({ selected: true }).data().length;
+			let enable = len > 1;
+
+			settingsPage.enableGridMultipleDelete(button, enable);
+		},
 		onClickAddNewSmartProfile() {
 			let modal = jq("#modalAddNewSmartProfile");
 			modal.find("#rbtnNewSmartProfile_SmartRules").prop("checked", true);
@@ -2212,6 +2290,24 @@ export class settingsPage {
 			modal.modal("show");
 			modal.find("#txtServerAddress").focus();
 		},
+		onClickRemoveMultipleProxyServer() {
+			var rows = settingsPage.grdServers.rows({ selected: true });
+			if (!rows)
+				return;
+
+			messageBox.confirm(api.i18n.getMessage("settingsConfirmRemoveMultipleProxyServer"),
+				() => {
+
+					// remove then redraw the grid page
+					rows.remove().draw('full-hold');
+
+					settingsPage.changeTracking.servers = true;
+
+					settingsPage.loadDefaultProxyServer();
+
+					settingsPage.enableGridMultipleDelete(jq("#btnRemoveMultipleProxyServer"), false);
+				});
+		},
 		onChangeServerProtocol() {
 			settingsPage.populateServerProtocol();
 		},
@@ -2247,7 +2343,7 @@ export class settingsPage {
 				messageBox.error(api.i18n.getMessage("settingsServerServerAddressIsEmpty"));
 				return;
 			}
-			if (!serverInputInfo.port || serverInputInfo.port <= 0) {
+			if (!serverInputInfo.port || serverInputInfo.port <= 0 || serverInputInfo.port > 65535) {
 				messageBox.error(api.i18n.getMessage("settingsServerPortNoInvalid"));
 				return;
 			}
@@ -2367,7 +2463,7 @@ export class settingsPage {
 					messageBox.info(api.i18n.getMessage("settingsRemoveAllProxyServersSuccess"));
 				});
 		},
-		onClickAddProxyMultipleRule(pageProfile: SettingsPageSmartProfile) {
+		onClickAddMultipleProxyRule(pageProfile: SettingsPageSmartProfile) {
 			let tabContainer = pageProfile.htmlProfileTab;
 
 			let modal = tabContainer.find("#modalAddMultipleRules");
@@ -2377,13 +2473,38 @@ export class settingsPage {
 			modal.find("#cmdMultipleRuleType").val(0);
 			modal.find("#txtMultipleRuleList").val("");
 
+			settingsPage.populateRuleModal(pageProfile, modal, null);
+
 			modal.modal("show");
 			modal.find("#txtMultipleRuleList").focus();
+		},
+		onClickRemoveMultipleProxyRule(pageProfile: SettingsPageSmartProfile) {
+			var rows = pageProfile.grdRules.rows({ selected: true });
+			if (!rows)
+				return;
+
+			messageBox.confirm(api.i18n.getMessage("settingsConfirmRemoveMultipleProxyRule"),
+				() => {
+
+					// remove then redraw the grid page
+					rows.remove().draw('full-hold');
+					settingsPage.changeTracking.smartProfiles = true;
+					settingsPage.enableGridMultipleDelete(
+						pageProfile.htmlProfileTab.find("#btnRemoveMultipleProxyRule"), false);
+				});
 		},
 		onClickSubmitMultipleRule(pageProfile: SettingsPageSmartProfile) {
 			let tabContainer = pageProfile.htmlProfileTab;
 
 			let modal = tabContainer.find("#modalAddMultipleRules");
+
+			let selectedProxyId = modal.find("#cmdRuleProxyServer").val();
+			let selectedProxy = null;
+
+			if (selectedProxyId)
+				selectedProxy = settingsPage.findProxyServerById(selectedProxyId);
+
+			let whiteList = parseInt(modal.find("#cmdRuleAction").val()) != 0;
 
 			let ruleType = +modal.find("#cmdMultipleRuleType").val();
 			let rulesStr = modal.find("#txtMultipleRuleList").val();
@@ -2451,6 +2572,9 @@ export class settingsPage {
 				newRule.proxy = null;
 				newRule.hostName = hostName;
 				newRule.ruleType = ruleType;
+				newRule.proxy = selectedProxy;
+				newRule.proxyServerId = selectedProxyId;
+				newRule.whiteList = whiteList;
 
 				resultRuleList.push(newRule);
 			}
@@ -2485,6 +2609,121 @@ export class settingsPage {
 
 			modal.modal("show");
 			modal.find("#txtRuleSource").focus();
+
+			resetModal();
+
+			function resetModal() {
+				var file = modal.find("#rbtnImportRulesSelect_File");
+				var text = modal.find("#rbtnImportRulesSelect_Text");
+				if (!file.prop("checked") && !text.prop("checked")) {
+					file.prop("checked", true);
+				}
+				modal.find("#txtImportRulesSelectText").val("");
+
+				let append = modal.find("#cmbImportRulesOverride_Append");
+				let replace = modal.find("#cmbImportRulesOverride_Replace");
+				if (!append.prop("checked") && !replace.prop("checked")) {
+					append.prop("checked", true);
+				}
+			}
+		},
+		onClickImportRules(pageProfile: SettingsPageSmartProfile) {
+			let tabContainer = pageProfile.htmlProfileTab;
+			let modalContainer = tabContainer.find("#modalImportRules");
+			let selectFileElement = modalContainer.find("#btnImportRulesSelectFile")[0];
+			let file, text;
+
+			if (modalContainer.find("#rbtnImportRulesSelect_File").prop("checked")) {
+				// file should be selected
+				if (selectFileElement.files.length == 0) {
+					// Please select a rules file
+					messageBox.error(api.i18n.getMessage("settingsRulesFileNotSelected"));
+					return;
+				}
+				file = selectFileElement.files[0];
+
+			} else {
+				let proxyServerListText: string = modalContainer.find("#txtImportRulesSelectText").val().trim();
+				if (proxyServerListText == "") {
+					// Please enter rules in the box
+					messageBox.error(api.i18n.getMessage("settingsImportRulesTextIsEmpty"));
+					return;
+				}
+				text = proxyServerListText;
+			}
+			let append = modalContainer.find("#cmbImportRulesOverride_Append").prop("checked");
+			let sourceType: ExternalRulesFormat = +modalContainer.find("#cmbImportRulesFormat").val();
+			let proxyRules = settingsPage.readRules(pageProfile);
+
+			let config = new ProxyRulesImportFromUI();
+			config.format = sourceType;
+
+			if (sourceType != ExternalRulesFormat.AutoProxy &&
+				sourceType != ExternalRulesFormat.SwitchyOmega) {
+				messageBox.warning(api.i18n.getMessage("settingsSourceTypeNotSelected"));
+				return;
+			}
+
+			RuleImporter.importRulesBatch(
+				config,
+				text,
+				file,
+				append,
+				proxyRules,
+				(importResult: {
+					success: boolean;
+					message: string;
+					rules: {
+						whiteList: ImportedProxyRule[];
+						blackList: ImportedProxyRule[];
+					};
+				}) => {
+					if (!importResult) return;
+
+					if (importResult.success) {
+						if (importResult.message)
+							messageBox.success(importResult.message);
+
+						// empty the file input
+						selectFileElement.value = "";
+
+						doImport(importResult.rules);
+
+						// close the window
+						modalContainer.modal("hide");
+					}
+					else {
+						if (importResult.message)
+							messageBox.error(importResult.message);
+					}
+				},
+				(error: Error) => {
+					let message = "";
+					if (error && error.message)
+						message = error.message;
+					messageBox.error(api.i18n.getMessage("settingsImportRulesFailed") + " " + message);
+				});
+
+			function doImport(rules: {
+				whiteList: ImportedProxyRule[];
+				blackList: ImportedProxyRule[];
+			}) {
+				let finalRules: ProxyRule[];
+				let mappedBlackRules = rules.blackList.map((rule) => rule.getProxyRule());
+				let mappedWhiteRules = rules.whiteList.map((rule) => {
+					let newRule = rule.getProxyRule();
+					newRule.whiteList = true;
+					return newRule;
+				});
+
+				if (append) {
+					finalRules = proxyRules.concat(mappedBlackRules).concat(mappedWhiteRules);
+				}
+				else
+					finalRules = mappedBlackRules.concat(mappedWhiteRules);
+
+				settingsPage.loadRules(pageProfile, finalRules);
+			}
 		},
 		onChangeRuleGeneratePattern(pageProfile: SettingsPageSmartProfile) {
 			settingsPage.updateProxyRuleModal(pageProfile.htmlProfileTab);
@@ -2632,7 +2871,11 @@ export class settingsPage {
 					return;
 				}
 			}
-			else if (ruleInfo.ruleType == ProxyRuleType.DomainSubdomain) {
+			else if (ruleInfo.ruleType == ProxyRuleType.DomainSubdomain ||
+				ruleInfo.ruleType == ProxyRuleType.DomainSubdomainAndPath ||
+				ruleInfo.ruleType == ProxyRuleType.DomainAndPath ||
+				ruleInfo.ruleType == ProxyRuleType.DomainExact ||
+				ruleInfo.ruleType == ProxyRuleType.SearchUrl) {
 				if (!checkHostName())
 					return;
 
@@ -2854,6 +3097,20 @@ export class settingsPage {
 			}
 
 			modal.on("shown.bs.modal", focusUrl);
+		},
+		onClickRemoveMultipleServerSubscription() {
+			var rows = settingsPage.grdServerSubscriptions.rows({ selected: true });
+			if (!rows)
+				return;
+
+			messageBox.confirm(api.i18n.getMessage("settingsConfirmRemoveMultipleServerSubscription"),
+				() => {
+					// remove then redraw the grid page
+					rows.remove().draw('full-hold');
+
+					settingsPage.changeTracking.serverSubscriptions = true;
+					settingsPage.enableGridMultipleDelete(jq("#btnRemoveMultipleServerSubscription"), false);
+				});
 		},
 		onServerSubscriptionEditClick(e: any) {
 
@@ -3134,6 +3391,22 @@ export class settingsPage {
 
 			modal.on("shown.bs.modal", focusUrl);
 		},
+		onClickRemoveMultipleRulesSubscription(pageProfile: SettingsPageSmartProfile) {
+			var rows = pageProfile.grdRulesSubscriptions.rows({ selected: true });
+			if (!rows)
+				return;
+
+			messageBox.confirm(api.i18n.getMessage("settingsConfirmRemoveMultipleRulesSubscription"),
+				() => {
+
+					// remove then redraw the grid page
+					rows.remove().draw('full-hold');
+					settingsPage.changeTracking.rulesSubscriptions = true;
+
+					settingsPage.enableGridMultipleDelete(
+						pageProfile.htmlProfileTab.find("#btnRemoveMultipleRulesSubscription"), false);
+				});
+		},
 		onRulesSubscriptionEditClick(pageProfile: SettingsPageSmartProfile, e: any) {
 
 			let item = settingsPage.readSelectedRulesSubscription(pageProfile, e);
@@ -3178,26 +3451,27 @@ export class settingsPage {
 				editingSubscription.stats = new SubscriptionStats();
 			}
 
-			RuleImporter.readFromServer(editingSubscription,
-				(response: {
-					success: boolean,
-					message: string,
-					result: {
-						whiteList: SubscriptionProxyRule[],
-						blackList: SubscriptionProxyRule[]
-					}
+			RuleImporter.readFromServerAndImport(editingSubscription,
+				(importResult: {
+					success: boolean;
+					message: string;
+					rules: {
+						whiteList: ImportedProxyRule[];
+						blackList: ImportedProxyRule[];
+					};
 				}) => {
-					if (response.success) {
-						let count = response.result.blackList.length + response.result.whiteList.length;
+					if (importResult.success) {
+						let count = importResult.rules.blackList.length + importResult.rules.whiteList.length;
 
 						if (editingSubscription.enabled) {
-							editingSubscription.proxyRules = response.result.blackList;
-							editingSubscription.whitelistRules = response.result.whiteList;
+							editingSubscription.proxyRules = importResult.rules.blackList;
+							editingSubscription.whitelistRules = importResult.rules.whiteList;
 						}
 						else {
 							editingSubscription.proxyRules = [];
 							editingSubscription.whitelistRules = [];
 						}
+
 						editingSubscription.totalCount = count;
 						SubscriptionStats.updateStats(editingSubscription.stats, true);
 
@@ -3205,18 +3479,17 @@ export class settingsPage {
 
 						// The subscription is updated with {0} proxy rules and {1} white listed rules in it. <br/>Don't forget to save the changes.
 						messageBox.success(api.i18n.getMessage("settingsRulesSubscriptionSaveUpdated")
-							.replace("{0}", response.result.blackList.length)
-							.replace("{1}", response.result.whiteList.length));
+							.replace("{0}", importResult.rules.blackList.length)
+							.replace("{1}", importResult.rules.whiteList.length));
 
 						settingsPage.changeTracking.rulesSubscriptions = true;
-
 					} else {
 						SubscriptionStats.updateStats(editingSubscription.stats, false);
 						messageBox.error(api.i18n.getMessage("settingsRulesSubscriptionSaveFailedGet"));
 					}
 				},
-				(errorResult) => {
-					SubscriptionStats.updateStats(editingSubscription.stats, false, errorResult);
+				(error) => {
+					SubscriptionStats.updateStats(editingSubscription.stats, false, error);
 					messageBox.error(api.i18n.getMessage("settingsRulesSubscriptionSaveFailedGet"));
 				});
 		},
@@ -3230,7 +3503,6 @@ export class settingsPage {
 		onClickSaveRulesSubscription(pageProfile: SettingsPageSmartProfile) {
 			let tabContainer = pageProfile.htmlProfileTab;
 			let modal = tabContainer.find("#modalRulesSubscription");
-
 			if (!modal.find("form")[0].checkValidity()) {
 				// Please fill the required fields in the right format
 				messageBox.error(api.i18n.getMessage("settingsRulesSubscriptionIncompleteForm"));
@@ -3245,10 +3517,10 @@ export class settingsPage {
 			let subscriptionsList = settingsPage.readRulesSubscriptions(pageProfile);
 			let editingSubscription: ProxyRulesSubscription = modal.data("editing");
 			let editingName = "";
-			if (editingSubscription)
+			if (editingSubscription) {
 				editingName = editingSubscription.name;
-
-			// let editingSubscription = null;
+				subscriptionModel.id = editingSubscription.id;
+			}
 
 			if (editingSubscription) {
 				let nameIsDuplicate = false;
@@ -3278,23 +3550,23 @@ export class settingsPage {
 			tabContainer.find("#btnSaveRulesSubscriptions").attr("data-loading-text", api.i18n.getMessage("settingsRulesSubscriptionSavingButton"));
 			tabContainer.find("#btnSaveRulesSubscriptions").button("loading");
 
-			RuleImporter.readFromServer(subscriptionModel,
-				(response: {
-					success: boolean,
-					message: string,
-					result: {
-						whiteList: SubscriptionProxyRule[],
-						blackList: SubscriptionProxyRule[]
-					}
+			RuleImporter.readFromServerAndImport(subscriptionModel,
+				(importResult: {
+					success: boolean;
+					message: string;
+					rules: {
+						whiteList: ImportedProxyRule[];
+						blackList: ImportedProxyRule[];
+					};
 				}) => {
 					tabContainer.find("#btnSaveRulesSubscriptions").button('reset');
 
-					if (response.success) {
-						let count = response.result.blackList.length + response.result.whiteList.length;
+					if (importResult.success) {
+						let count = importResult.rules.blackList.length + importResult.rules.whiteList.length;
 
 						if (subscriptionModel.enabled) {
-							subscriptionModel.proxyRules = response.result.blackList;
-							subscriptionModel.whitelistRules = response.result.whiteList;
+							subscriptionModel.proxyRules = importResult.rules.blackList;
+							subscriptionModel.whitelistRules = importResult.rules.whiteList;
 						}
 						else {
 							subscriptionModel.proxyRules = [];
@@ -3312,8 +3584,8 @@ export class settingsPage {
 
 							// The subscription is updated with {0} proxy rules and {1} white listed rules in it. <br/>Don't forget to save the changes.
 							messageBox.success(api.i18n.getMessage("settingsRulesSubscriptionSaveUpdated")
-								.replace("{0}", response.result.blackList.length)
-								.replace("{1}", response.result.whiteList.length));
+								.replace("{0}", importResult.rules.blackList.length)
+								.replace("{1}", importResult.rules.whiteList.length));
 						} else {
 
 							// insert to the grid
@@ -3321,8 +3593,8 @@ export class settingsPage {
 
 							// The subscription is added with {0} proxy rules and {1} white listed rules in it. <br/>Don't forget to save the changes.
 							messageBox.success(api.i18n.getMessage("settingsRulesSubscriptionSaveAdded")
-								.replace("{0}", response.result.blackList.length)
-								.replace("{1}", response.result.whiteList.length));
+								.replace("{0}", importResult.rules.blackList.length)
+								.replace("{1}", importResult.rules.whiteList.length));
 						}
 
 						settingsPage.changeTracking.rulesSubscriptions = true;
@@ -3336,12 +3608,13 @@ export class settingsPage {
 						messageBox.error(api.i18n.getMessage("settingsRulesSubscriptionSaveFailedGet"));
 					}
 				},
-				(errorResult) => {
-					SubscriptionStats.updateStats(subscriptionModel.stats, false, errorResult);
+				(error) => {
+					SubscriptionStats.updateStats(subscriptionModel.stats, false, error);
 
 					messageBox.error(api.i18n.getMessage("settingsRulesSubscriptionSaveFailedGet"));
 					tabContainer.find("#btnSaveRulesSubscriptions").button('reset');
 				});
+
 		},
 		onClickTestRulesSubscription(pageProfile: SettingsPageSmartProfile) {
 			let tabContainer = pageProfile.htmlProfileTab;
@@ -3386,22 +3659,22 @@ export class settingsPage {
 					if (response.message)
 						messageBox.success(response.message);
 
-					RuleImporter.readFromServer(subscriptionModel,
-						(response: {
-							success: boolean,
-							message: string,
-							result: {
-								whiteList: string[],
-								blackList: string[]
-							}
+					RuleImporter.readFromServerAndImport(subscriptionModel,
+						(importResult: {
+							success: boolean;
+							message: string;
+							rules: {
+								whiteList: ImportedProxyRule[];
+								blackList: ImportedProxyRule[];
+							};
 						}) => {
 							tabContainer.find("#btnTestRulesSubscriptions").button('reset');
 
-							if (response.success) {
+							if (importResult.success) {
 
 								messageBox.success(api.i18n.getMessage("settingsRulesSubscriptionTestSuccess")
-									.replace("{0}", response.result.blackList.length)
-									.replace("{1}", response.result.whiteList.length));
+									.replace("{0}", importResult.rules.blackList.length)
+									.replace("{1}", importResult.rules.whiteList.length));
 							} else {
 								messageBox.error(api.i18n.getMessage("settingsRulesSubscriptionTestFailed"));
 							}
@@ -3436,7 +3709,6 @@ export class settingsPage {
 		},
 		onClickImportProxyServer() {
 			let modalContainer = jq("#modalImportProxyServer");
-			let append = modalContainer.find("#cmbImportProxyServerOverride_Append").prop("checked");
 			let file, text;
 
 			if (modalContainer.find("#rbtnImportProxyServer_File").prop("checked")) {
@@ -3452,7 +3724,7 @@ export class settingsPage {
 				file = selectFileElement.files[0];
 
 			} else {
-				let proxyServerListText = modalContainer.find("#btnImportProxyServerListText").val().trim();
+				let proxyServerListText: string = modalContainer.find("#btnImportProxyServerListText").val().trim();
 				if (proxyServerListText == "") {
 					// Please enter proxy list
 					messageBox.error(api.i18n.getMessage("settingsImportProxyListTextIsEmpty"));
@@ -3460,7 +3732,7 @@ export class settingsPage {
 				}
 				text = proxyServerListText;
 			}
-
+			let append = modalContainer.find("#cmbImportProxyServerOverride_Append").prop("checked");
 			let proxyServers = settingsPage.readServers();
 
 			ProxyImporter.importText(text, file,
@@ -3499,63 +3771,6 @@ export class settingsPage {
 					messageBox.error(api.i18n.getMessage("settingsImportProxyServersFailed") + " " + message);
 				});
 
-		},
-		onClickImportRules(pageProfile: SettingsPageSmartProfile) {
-			let tabContainer = pageProfile.htmlProfileTab;
-
-			let modalContainer = tabContainer.find("#modalImportRules");
-			let selectFileElement = modalContainer.find("#btnImportRulesSelectFile")[0];
-
-			if (selectFileElement.files.length == 0) {
-				// Please select a rules file
-				messageBox.error(api.i18n.getMessage("settingsRulesFileNotSelected"));
-				return;
-			}
-
-			let selectFile = selectFileElement.files[0];
-
-			let append = modalContainer.find("#cmbImportRulesOverride_Append").prop("checked");
-			let sourceType = modalContainer.find("#cmbImportRulesFormat").val();
-
-			let proxyRules = settingsPage.readRules(pageProfile);
-
-			let importFunction: Function;
-			if (sourceType == "autoproxy") {
-				importFunction = RuleImporter.importAutoProxy;
-			} else {
-				messageBox.warning(api.i18n.getMessage("settingsSourceTypeNotSelected"));
-				return;
-			}
-
-			importFunction(selectFile,
-				append,
-				proxyRules,
-				(response: any) => {
-					if (!response) return;
-
-					if (response.success) {
-						if (response.message)
-							messageBox.info(response.message);
-
-						// empty the file input
-						selectFileElement.value = "";
-
-						let rules = response.result;
-						settingsPage.loadRules(pageProfile, rules);
-
-						// close the window
-						modalContainer.modal("hide");
-					} else {
-						if (response.message)
-							messageBox.error(response.message);
-					}
-				},
-				(error: Error) => {
-					let message = "";
-					if (error && error.message)
-						message = error.message;
-					messageBox.error(api.i18n.getMessage("settingsImportRulesFailed") + " " + message);
-				});
 		},
 		onClickFactoryReset() {
 			// Are you sure to reset EVERYTHING ? Sure? There is no way back!
